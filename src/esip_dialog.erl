@@ -54,7 +54,7 @@ open(#sip{type = request, uri = URI, hdrs = ReqHdrs},
     case esip:get_hdr(contact, RespHdrs) of
         [{_, RemoteTarget, _}|_] ->
             [#via{transport = Transport}|_] = esip:get_hdr(via, ReqHdrs),
-            Secure = (esip_transport:type(Transport) == tls)
+            Secure = (esip_transport:via_transport_to_atom(Transport) == tls)
                 and (URI#uri.proto == <<"sips">>),
             RouteSet = lists:foldl(
                          fun({_, U, _}, Acc) ->
@@ -92,7 +92,7 @@ open(#sip{type = request, uri = URI, hdrs = Hdrs}, LocalTag, State, TU) ->
     case esip:get_hdr(contact, Hdrs) of
         [{_, RemoteTarget, _}|_] ->
             [#via{transport = Transport}|_] = esip:get_hdr(via, Hdrs),
-            Secure = (esip_transport:type(Transport) == tls)
+            Secure = (esip_transport:via_transport_to_atom(Transport) == tls)
                 and (URI#uri.proto == <<"sips">>),
             RouteSet = [U || {_, U, _} <- esip:get_hdrs('record-route', Hdrs)],
             RemoteSeqNum = esip:get_hdr(cseq, Hdrs),

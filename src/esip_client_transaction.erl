@@ -61,7 +61,7 @@ init([Request, TU, SIPSocket]) ->
 trying(#sip{type = request, method = Method} = Request, State) ->
     case connect(State, Request) of
         {ok, #sip_socket{type = Type} = SIPSock, NewRequest, Branch} ->
-            esip_transaction:insert(Branch, Method, self()),
+            esip_transaction:insert(Branch, Method, client, self()),
             T1 = esip:timer1(),
             if Type == udp, Method == <<"INVITE">> ->
                     gen_fsm:send_event_after(T1, {timer_A, T1});
@@ -180,7 +180,11 @@ handle_info(_Info, StateName, State) ->
     {next_state, StateName, State}.
 
 terminate(_Reason, _StateName, #state{req = Req, branch = Branch}) ->
-    esip_transaction:delete(Branch, Req#sip.method).
+    if Req /= undefined ->
+            catch esip_transaction:delete(Branch, Req#sip.method, client);
+       true ->
+            ok
+    end.
 
 code_change(_OldVsn, StateName, State, _Extra) ->
     {ok, StateName, State}.
@@ -211,13 +215,9 @@ send_ack(_, _) ->
 
 connect(#state{sock = undefined}, #sip{uri = URI, hdrs = Hdrs} = Req) ->
     case esip_transport:connect(URI) of
-        {ok, #sip_socket{type = Type, addr = {_, Port}} = SIPSocket} ->
+        {ok, SIPSocket} ->
             Branch = esip:make_branch(),
-            NewHdrs = [{via, [#via{transport = esip_transport:type(Type),
-                                   host = esip:get_config_value(hostname),
-                                   port = Port,
-                                   params = [{<<"branch">>, Branch},
-                                             {<<"rport">>, <<>>}]}]}|Hdrs],
+            NewHdrs = [esip_transport:make_via_hdr(Branch)|Hdrs],
             {ok, SIPSocket, Req#sip{hdrs = NewHdrs}, Branch};
         Err ->
             Err
@@ -228,10 +228,5 @@ connect(#state{sock = SIPSocket}, #sip{method = <<"CANCEL">>, hdrs = Hdrs} = Req
     {ok, SIPSocket, Req#sip{hdrs = [{via, [Via]}|TailHdrs]}, Branch};
 connect(#state{sock = SIPSocket}, #sip{hdrs = Hdrs} = Req) ->
     Branch = esip:make_branch(),
-    #sip_socket{type = Type, addr = {_, Port}} = SIPSocket,
-    NewHdrs = [{via, [#via{transport = esip_transport:type(Type),
-                           host = esip:get_config_value(hostname),
-                           port = Port,
-                           params = [{<<"branch">>, Branch},
-                                     {<<"rport">>, <<>>}]}]}|Hdrs],
+    NewHdrs = [esip_transport:make_via_hdr(Branch)|Hdrs],
     {ok, SIPSocket, Req#sip{hdrs = NewHdrs}, Branch}.

@@ -33,6 +33,12 @@ init([]) ->
     Transaction =
 	{esip_transaction, {esip_transaction, start_link, []},
 	 permanent, 2000, worker, [esip_transaction]},
+    Transport =
+        {esip_transport, {esip_transport, start_link, []},
+	 permanent, 2000, worker, [esip_transport]},
+    Listener =
+        {esip_listener, {esip_listener, start_link, []},
+	 permanent, 2000, worker, [esip_listener]},
     ServerTransactionSup =
 	{esip_server_transaction_sup,
 	 {esip_tmp_sup, start_link,
@@ -53,7 +59,9 @@ init([]) ->
 	 [Dialog,
 	  ServerTransactionSup,
 	  ClientTransactionSup,
-	  Transaction]}}.
+	  Transaction,
+          Transport,
+          Listener]}}.
 
 %%====================================================================
 %% Internal functions

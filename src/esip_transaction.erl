@@ -11,7 +11,7 @@
 
 %% API
 -export([start_link/0, process/2, response/2, cancel/2,
-         request/2, insert/3, delete/2, lookup/1]).
+         request/2, insert/4, delete/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -30,7 +30,7 @@ start_link() ->
 
 process(SIPSock, #sip{method = Method, hdrs = Hdrs, type = request} = Req) ->
     Branch = esip:get_branch(Hdrs),
-    case lookup(transaction_key(Branch, Method)) of
+    case lookup(transaction_key(Branch, Method, server)) of
 	{ok, Pid} ->
 	    esip_server_transaction:route(Pid, Req);
         error when Method == <<"ACK">> ->
@@ -41,7 +41,7 @@ process(SIPSock, #sip{method = Method, hdrs = Hdrs, type = request} = Req) ->
                     esip:callback(request, [Req, undefined])
             end;
 	error when Method == <<"CANCEL">> ->
-            case lookup(Branch) of
+            case lookup({Branch, server}) of
                 {ok, Pid} ->
                     esip_server_transaction:route(Pid, Req),
                     esip_server_transaction:start(SIPSock, Req);
@@ -64,7 +64,7 @@ process(SIPSock, #sip{method = Method, hdrs = Hdrs, type = request} = Req) ->
     end;
 process(_SIPSock, #sip{method = Method, hdrs = Hdrs, type = response} = Resp) ->
     Branch = esip:get_branch(Hdrs),
-    case lookup(transaction_key(Branch, Method)) of
+    case lookup(transaction_key(Branch, Method, client)) of
         {ok, Pid} ->
             esip_client_transaction:route(Pid, Resp);
         _ ->
@@ -76,7 +76,7 @@ response(#trid{owner = Pid, type = server}, #sip{type = response} = Resp) ->
 response(#sip{method = Method, type = request, hdrs = Hdrs},
          #sip{type = response} = Resp) ->
     Branch = esip:get_branch(Hdrs),
-    case lookup(transaction_key(Branch, Method)) of
+    case lookup(transaction_key(Branch, Method, server)) of
         {ok, Pid} ->
             esip_server_transaction:route(Pid, Resp);
         error ->
@@ -91,11 +91,11 @@ request(#sip{type = request} = Req, TU) ->
 cancel(#trid{type = client, owner = Pid}, TU) ->
     esip_client_transaction:cancel(Pid, TU).
 
-insert(Branch, Method, Pid) ->
-    ets:insert(?MODULE, {transaction_key(Branch, Method), Pid}).
+insert(Branch, Method, Type, Pid) ->
+    ets:insert(?MODULE, {transaction_key(Branch, Method, Type), Pid}).
 
-delete(Branch, Method) ->
-    ets:delete(?MODULE, transaction_key(Branch, Method)).
+delete(Branch, Method, Type) ->
+    ets:delete(?MODULE, transaction_key(Branch, Method, Type)).
 
 %%====================================================================
 %% gen_server callbacks
@@ -130,10 +130,10 @@ lookup(TransactionKey) ->
 	    error
     end.
 
-transaction_key(Branch, <<"CANCEL">>) ->
-    {Branch, cancel};
-transaction_key(Branch, _Method) ->
-    Branch.
+transaction_key(Branch, <<"CANCEL">>, Type) ->
+    {Branch, cancel, Type};
+transaction_key(Branch, _Method, Type) ->
+    {Branch, Type}.
 
 pass_to_core(Core, Req) ->
     case Core of

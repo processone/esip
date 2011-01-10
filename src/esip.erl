@@ -23,7 +23,7 @@
          timer1/0, timer2/0, timer4/0, reason/1, filter_hdrs/2,
          open_dialog/4, close_dialog/1, make_cseq/0, error_status/1,
          dialog_request/3, make_hdrs/0, mod/0, callback/1, callback/2,
-         callback/3, send/1, dialog_send/2, ack/1]).
+         callback/3, send/1, dialog_send/2, ack/1, make_contact/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -233,6 +233,9 @@ set_param(Param, Val, Params) ->
 get_branch(Hdrs) ->
     [Via|_] = get_hdr(via, Hdrs),
     get_param(<<"branch">>, Via#via.params).
+
+make_contact(Transport) ->
+    esip_transport:make_contact(Transport).
 
 make_response(Req, Resp) ->
     make_response(Req, Resp, <<>>).
@@ -452,12 +455,12 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({init, Opts}, State) ->
-    case lists:keysearch(udp, 1, Opts) of
-	{value, {udp, IP, Port, UDPOpts}} ->
-	    esip_udp:start(IP, Port, UDPOpts);
-	_ ->
-	    ok
-    end,
+    lists:foreach(
+      fun({listen, Port, Transport, LOpts}) ->
+              esip_listener:add_listener(Port, Transport, LOpts);
+         (_) ->
+              ok
+      end, Opts),
     {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -477,7 +480,8 @@ default_config() ->
      {max_forwards, 70},
      {timer1, 500},
      {timer2, 4000},
-     {timer4, 5000}].
+     {timer4, 5000},
+     {max_msg_size, 128*1024}].
 
 set_config(Opts) ->
     lists:foreach(

@@ -15,42 +15,148 @@
 
 -include("esip.hrl").
 
+-record(state, {buf, max_size, got_size, more_size,
+                start_line, hdrs, method, type}).
+
 %%%===================================================================
 %%% API
 %%%===================================================================
 decode(Data) ->
-    case binary:match(Data, <<"\r\n">>) of
+    decode(Data, init(undefined, datagram)).
+
+init(MaxSize) ->
+    init(MaxSize, stream).
+
+init(MaxSize, Type) ->
+    init(MaxSize, Type, <<>>).
+
+init(MaxSize, Type, Buf) ->
+    #state{buf = Buf,
+           max_size = MaxSize,
+           got_size = 0,
+           more_size = 0,
+           start_line = undefined,
+           method = <<>>,
+           type = Type,
+           hdrs = []}.
+
+decode(Data, #state{start_line = undefined, buf = Buf,
+                    got_size = GotSize} = State) ->
+    NewBuf = <<Buf/binary, Data/binary>>,
+    case binary:match(NewBuf, <<"\r\n">>) of
         {Pos, Len} ->
-            <<Head:Pos/binary, _:Len/binary, Tail/binary>> = Data,
+            <<Head:Pos/binary, _:Len/binary, Tail/binary>> = NewBuf,
             case decode_start_line(Head) of
                 {error, _Reason} = Err ->
                     Err;
-                Res ->
-                    case decode_hdrs(Tail, {<<>>, []}) of
-                        {ok, CSeqMethod, Hdrs, Body} ->
-                            case Res of
-                                {response, Ver, Status, Reason} ->
-                                    #sip{type = response,
-                                         method = CSeqMethod,
-                                         version = Ver,
-                                         status = Status,
-                                         reason = Reason,
-                                         hdrs = Hdrs,
-                                         body = Body};
-                                {request, Ver, Method, URI} ->
-                                    #sip{type = request,
-                                         version = Ver,
-                                         method = Method,
-                                         uri = URI,
-                                         hdrs = Hdrs,
-                                         body = Body}
-                            end;
-                        Err ->
-                            Err
-                    end
+                StartLine ->
+                    decode(Tail, State#state{start_line = StartLine,
+                                             got_size = GotSize + Pos + Len,
+                                             buf = <<>>})
             end;
         nomatch ->
-            more
+            check_size(State#state{buf = NewBuf,
+                                   got_size = GotSize + size(Data)})
+    end;
+decode(Data, #state{more_size = MoreSize, got_size = GotSize,
+                    max_size = MaxSize, method = CSeqMethod,
+                    buf = Buf, hdrs = Hdrs, type = Type,
+                    start_line = StartLine} = State) when MoreSize > 0 ->
+    case Data of
+        <<Head:MoreSize/binary, NewBuf/binary>> ->
+            Body = <<Buf/binary, Head/binary>>,
+            finish_decode(StartLine, CSeqMethod, Body, Hdrs, NewBuf, State);
+        _ ->
+            NewBuf = <<Buf/binary, Data/binary>>,
+            check_size(#state{more_size = MoreSize - size(NewBuf),
+                              got_size = GotSize + size(Data),
+                              max_size = MaxSize,
+                              buf = NewBuf,
+                              hdrs = Hdrs,
+                              method = CSeqMethod,
+                              type = Type,
+                              start_line = StartLine})
+    end;
+decode(Data, #state{start_line = StartLine,
+                    method = Method,
+                    buf = Buf,
+                    type = Type,
+                    max_size = MaxSize,
+                    got_size = GotSize,
+                    hdrs = Hdrs} = State) ->
+    NewBuf = <<Buf/binary, Data/binary>>,
+    NewGotSize = GotSize + size(Data),
+    case decode_hdrs(NewBuf, {Method, Hdrs}) of
+        {ok, NewMethod, NewHdrs, Body} when Type == datagram ->
+            finish_decode(StartLine, NewMethod,
+                          Body, NewHdrs, <<>>, State);
+        {ok, NewMethod, NewHdrs, Body} ->
+            case esip:get_hdr('content-length', NewHdrs) of
+                undefined ->
+                    {error, no_content_length};
+                L ->
+                    case Body of
+                        <<NewBody:L/binary, Tail/binary>> ->
+                            finish_decode(StartLine, NewMethod,
+                                          NewBody, NewHdrs, Tail, State);
+                        _ ->
+                            check_size(#state{start_line = StartLine,
+                                              method = NewMethod,
+                                              hdrs = NewHdrs,
+                                              buf = Body,
+                                              got_size = NewGotSize,
+                                              max_size = MaxSize,
+                                              type = Type,
+                                              more_size = L - size(Body)})
+                    end
+            end;
+        {more, NewData, {NewMethod, NewHdrs}} ->
+            check_size(#state{start_line = StartLine,
+                              method = NewMethod,
+                              hdrs = NewHdrs,
+                              buf = NewData,
+                              max_size = MaxSize,
+                              more_size = 0,
+                              type = Type,
+                              got_size = NewGotSize});
+        Err ->
+            Err
+    end.
+
+finish_decode(StartLine, CSeqMethod, Body, Hdrs, NewBuf,
+              #state{max_size = MaxSize, type = Type}) ->
+    Msg = case StartLine of
+              {response, Ver, Status, Reason} ->
+                  #sip{type = response,
+                       method = CSeqMethod,
+                       version = Ver,
+                       status = Status,
+                       reason = Reason,
+                       hdrs = Hdrs,
+                       body = Body};
+              {request, Ver, Method, URI} ->
+                  #sip{type = request,
+                       version = Ver,
+                       method = Method,
+                       uri = URI,
+                       hdrs = Hdrs,
+                       body = Body}
+          end,
+    case Type of
+        datagram ->
+            {ok, Msg};
+        _ ->
+            {ok, Msg, init(MaxSize, Type, NewBuf)}
+    end.
+
+check_size(#state{got_size = GotSize, type = Type,
+                  max_size = MaxSize} = State) ->
+    if GotSize > MaxSize ->
+            {error, too_big};
+       Type == datagram ->
+            {error, incomplete};
+       true ->
+            {more, State}
     end.
 
 decode_uri(Data) ->
@@ -291,7 +397,7 @@ decode_hdrs(Data, {Method, Acc}) ->
         {ok, http_eoh, Body} ->
             {ok, Method, prepare_hdrs(Acc), Body};
         {more, _} ->
-            more;
+            {more, Data, {Method, Acc}};
         _ ->
             {error, bad_header}
     end.
@@ -931,7 +1037,7 @@ msg() ->
       "Content-Disposition: session;handling=optional\r\n"
       "Content-Encoding: gzip\r\n"
       "Content-Language: fr\r\n"
-      "Content-Length: 3\r\n"
+      "Content-Length: 8\r\n"
       "Content-Type: multipart/signed; gzip=true\r\n"
       "CSeq: 314159 INVITE\r\n"
       "Date: Thu, 21 Feb 2002 13:02:03 GMT\r\n"
@@ -1041,7 +1147,7 @@ msg() ->
       "\r\nSIP body">>.
 
 test() ->
-    io:format("~s~n", [encode(decode(msg()))]).
+    io:format("~p~n", [decode(msg())]).
 
 test_loop() ->
     N = 100000,

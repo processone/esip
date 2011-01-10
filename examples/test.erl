@@ -27,9 +27,11 @@ start() ->
 
 init() ->
     register(?MODULE, self()),
-    esip:start(?MODULE, [{udp, {192,168,1,1}, 5090, []},
+    esip:start(?MODULE, [{listen, 5090, udp, [{ip, {192,168,1,1}}]},
+                         {listen, 5090, tcp, [{ip, {192,168,1,1}}]},
                          {hostname, "zinid.ru"}]),
-    %%self() ! start,
+    %%self() ! options,
+    self() ! invite,
     loop().
 
 %%%-------------------------------------------------------------------
@@ -44,14 +46,20 @@ data_out(Transport, From, To, Data) ->
 message_in(_, _, _, _) ->
     ok.
 
-message_out(#sip{hdrs = Hdrs, type = Type} = Msg, _, _, _) ->
-    NewHdrs = case Type of
-                  response ->
-                      esip:set_hdr(server, ?VERSION, Hdrs);
-                  request ->
-                      esip:set_hdr('user-agent', ?VERSION, Hdrs)
-              end,
-    Msg#sip{hdrs = NewHdrs}.
+message_out(#sip{hdrs = Hdrs, type = Type, method = Method} = Msg,
+            Transport, _, _) ->
+    Hdrs1 = case Type of
+                response ->
+                    esip:set_hdr(server, ?VERSION, Hdrs);
+                request ->
+                    esip:set_hdr('user-agent', ?VERSION, Hdrs)
+            end,
+    Hdrs2 = if Type == request, Method == <<"INVITE">> ->
+                    esip:set_hdr(contact, esip:make_contact(Transport), Hdrs1);
+               true ->
+                    Hdrs1
+            end,
+    Msg#sip{hdrs = Hdrs2}.
 
 response(_) ->
     ok.
@@ -67,7 +75,7 @@ transaction_user(_Req) ->
 %%%-------------------------------------------------------------------
 log(Transport, {FromIP, FromPort}, {ToIP, ToPort}, Data) ->
     error_logger:info_msg(
-      "** [~p] ~s:~p -> ~s:~p:~n~s",
+      "** SIP [~p] ~s:~p -> ~s:~p:~n~s",
       [Transport, inet_parse:ntoa(FromIP), FromPort,
        inet_parse:ntoa(ToIP), ToPort, Data]).
 
@@ -148,7 +156,7 @@ response(#sip{status = Status} = Resp, Req, _) when Status >= 200, Status < 300 
             ok
     end;
 response(_Resp, _, _) ->
-    %%io:format("Resp: ~p~n", [Resp]).
+    %%io:format("Resp: ~p~n", [_Resp]),
     ok.
 
 dialog_request(#sip{type = request, method = <<"BYE">>} = Req, _TrID) ->
@@ -158,24 +166,23 @@ dialog_request(#sip{type = request, method = <<"ACK">>}, _TrID) ->
     ok.
 
 loop() ->
+    ToURI = #uri{proto = <<"sip">>,
+                 user = <<"xram">>,
+                 host = <<"192.168.1.1">>,
+                 params = []},
+    FromURI = #uri{proto = <<"sip">>,
+                   user = <<"zinid">>,
+                   host = <<"192.168.1.1">>,
+                   port = 5090},
+    Hdrs = [{to, {<<>>, ToURI, []}},
+            {from, {<<>>, FromURI, [{<<"tag">>, esip:make_tag()}]}}
+            |esip:make_hdrs()],
     receive
-        start ->
-            ToURI = #uri{proto = <<"sip">>,
-                         user = <<"xram">>,
-                         host = <<"192.168.1.1">>,
-                         port = 5060},
-            FromURI = #uri{proto = <<"sip">>,
-                           user = <<"zinid">>,
-                           host = <<"192.168.1.1">>,
-                           port = 5090},
+        invite ->
             Req = #sip{type = request,
                        method = <<"INVITE">>,
                        uri = ToURI,
-                       hdrs = [{to, {<<>>, ToURI, []}},
-                               {from, {<<>>, FromURI, [{<<"tag">>, esip:make_tag()}]}},
-                               {contact, [{<<>>, FromURI, []}]},
-                               {'content-type', {<<"application/sdp">>, []}}|
-                               esip:make_hdrs()],
+                       hdrs = [{'content-type', {<<"application/sdp">>, []}}|Hdrs],
                        body = <<"v=0\n"
                                 "o=esip 745407524 1045017468 IN IP4 192.168.1.1\n"
                                 "s=-\n"
@@ -192,6 +199,13 @@ loop() ->
                                 "a=ptime:20\n">>},
             esip:request(Req, {?MODULE, response, []}),
             loop();
-	_ ->
+        options ->
+            Req = #sip{type = request,
+                       method = <<"OPTIONS">>,
+                       uri = ToURI,
+                       hdrs = esip:set_hdr('max-forwards', 0, Hdrs)},
+            esip:request(Req, {?MODULE, response, []}),
+            loop();
+        _ ->
 	    loop()
     end.

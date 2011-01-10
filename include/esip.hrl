@@ -14,7 +14,7 @@
               status,
               reason}).
 
--record(uri, {proto = <<>>,
+-record(uri, {proto = <<"sip">>,
               user = <<>>,
               password = <<>>,
               host = <<>>,

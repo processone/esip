@@ -5,7 +5,7 @@
 %%%
 %%% Created : 15 Jul 2009 by Evgeniy Khramtsov <ekhramtsov@process-one.net>
 %%%-------------------------------------------------------------------
--record(sip_socket, {type, owner, sock, peer, addr}).
+-record(sip_socket, {type, sock, addr, peer}).
 
 -record(trid, {owner, type}).
 

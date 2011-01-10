@@ -54,7 +54,7 @@ init([SIPSock, Request]) ->
     TrID = #trid{owner = self(), type = server},
     State = #state{sock = SIPSock, branch = Branch, trid = TrID},
     gen_fsm:send_event(self(), Request),
-    esip_transaction:insert(Branch, Request#sip.method, self()),
+    esip_transaction:insert(Branch, Request#sip.method, server, self()),
     erlang:send_after(?MAX_TRANSACTION_LIFETIME, self(), stop),
     {ok, trying, State}.
 
@@ -219,7 +219,7 @@ handle_info(_Info, StateName, State) ->
     {next_state, StateName, State}.
 
 terminate(_Reason, _StateName, #state{branch = Branch, req = Req}) ->
-    esip_transaction:delete(Branch, Req#sip.method).
+    esip_transaction:delete(Branch, Req#sip.method, server).
 
 code_change(_OldVsn, StateName, State, _Extra) ->
     {ok, StateName, State}.
