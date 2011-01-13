@@ -38,7 +38,7 @@ process(SIPSock, #sip{method = Method, hdrs = Hdrs, type = request} = Req) ->
                 {ok, Core, _} ->
                     pass_to_core(Core, Req);
                 _Err ->
-                    esip:callback(request, [Req, undefined])
+                    esip:callback(request, [Req])
             end;
 	error when Method == <<"CANCEL">> ->
             case lookup({Branch, server}) of
@@ -46,7 +46,7 @@ process(SIPSock, #sip{method = Method, hdrs = Hdrs, type = request} = Req) ->
                     esip_server_transaction:route(Pid, Req),
                     esip_server_transaction:start(SIPSock, Req);
                 error ->
-                    case esip:callback(request, [Req, undefined]) of
+                    case esip:callback(request, [Req]) of
                         #sip{type = response} = Resp ->
                             esip_transport:send(SIPSock, Resp);
                         pass ->

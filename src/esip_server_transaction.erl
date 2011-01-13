@@ -150,12 +150,8 @@ proceeding(_Event, State) ->
     {next_state, proceeding, State}.
 
 accepted(#sip{type = request, method = <<"ACK">>} = Req, State) ->
-    case pass_to_transaction_user(State, Req) of
-        #sip{type = response} = Resp ->
-            accepted(Resp, State);
-        wait ->
-            {next_state, accepted, State}
-    end;
+    pass_to_transaction_user(State, Req),
+    {next_state, accepted, State};
 accepted(#sip{type = response, status = Status} = Resp, State)
   when Status >= 200, Status < 300 ->
     esip_transport:send(State#state.sock, Resp),
@@ -227,6 +223,8 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+is_transaction_user(#sip{type = response}) ->
+    true;
 is_transaction_user(TU) ->
     is_function(TU) orelse (is_tuple(TU) andalso (tuple_size(TU) == 3)).
 
@@ -235,7 +233,9 @@ pass_to_transaction_user(#state{trid = TrID, tu = TU}, Req) ->
         F when is_function(F) ->
             esip:callback(F, [Req, TrID]);
         {M, F, A} ->
-            esip:callback(M, F, [Req, TrID | A])
+            esip:callback(M, F, [Req, TrID | A]);
+        #sip{type = response} = Resp ->
+            Resp
     end.
 
 find_transaction_user(Req) ->

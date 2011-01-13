@@ -14,9 +14,11 @@
 %% esip callbacks
 -export([transaction_user/1, data_in/4, data_out/4,
          message_in/4, message_out/4,
-         response/1, request/2]).
+         response/1, request/1]).
 
 -include("esip.hrl").
+-include_lib("megaco/include/megaco_message_v1.hrl").
+-include_lib("megaco/include/megaco_sdp.hrl").
 
 -define(VERSION, <<"esip/0.1">>).
 -define(ALLOW, [<<"INVITE">>, <<"OPTIONS">>,
@@ -27,11 +29,11 @@ start() ->
 
 init() ->
     register(?MODULE, self()),
-    esip:start(?MODULE, [{listen, 5090, udp, [{ip, {192,168,1,1}}]},
-                         {listen, 5090, tcp, [{ip, {192,168,1,1}}]},
+    esip:start(?MODULE, [{listen, 5060, udp, [{ip, {192,168,1,1}}]},
+                         {listen, 5060, tcp, [{ip, {192,168,1,1}}]},
                          {hostname, "zinid.ru"}]),
     %%self() ! options,
-    self() ! invite,
+    %%self() ! invite,
     loop().
 
 %%%-------------------------------------------------------------------
@@ -64,7 +66,7 @@ message_out(#sip{hdrs = Hdrs, type = Type, method = Method} = Msg,
 response(_) ->
     ok.
 
-request(_, _) ->
+request(_) ->
     ok.
 
 transaction_user(_Req) ->
@@ -98,10 +100,13 @@ transaction(#sip{type = request, method = <<"INVITE">>} = Req, _) ->
     Tag = esip:make_tag(),
     case esip:open_dialog(Req, Tag, early, {?MODULE, dialog_request, []}) of
         {ok, _DialogID} ->
+            CType = esip:get_hdr('content-type', Req#sip.hdrs),
             esip:make_response(
-              Req, #sip{type = response, status = 180,
-                        hdrs = [{require, [<<"100rel">>]},
-                                {rseq, esip:make_cseq()}]},
+              Req, #sip{type = response, status = 180},
+                        %% hdrs = [{'content-type', CType}],
+                        %% body = Req#sip.body},
+                        %% hdrs = [{require, [<<"100rel">>]},
+                        %%         {rseq, esip:make_cseq()}]},
               Tag);
         Err ->
             {Status, Reason} = esip:error_status(Err),
@@ -109,25 +114,22 @@ transaction(#sip{type = request, method = <<"INVITE">>} = Req, _) ->
               Req, #sip{status = Status, type = response, reason = Reason},
               Tag)
     end;
-transaction(#sip{type = request, method = <<"sINVITE">>,
-             hdrs = Hdrs, body = Body} = Req, _) ->
+transaction(#sip{type = request, method = <<"INVITE">>,
+                 hdrs = Hdrs, body = Body} = Req, _) ->
     Tag = esip:make_tag(),
     case esip:open_dialog(Req, Tag, confirmed, {?MODULE, dialog_request, []}) of
         {ok, DialogID} ->
+            %%io:format("Body: ~p~n", [decode_sdp(Body)]),
             NewHdrs = esip:filter_hdrs(['content-type'], Hdrs),
-            HostName = esip:get_config_value(hostname),
-            timer:apply_after(5000, esip, dialog_request,
-                              [DialogID,
-                               #sip{type = request, method = <<"BYE">>,
-                                    hdrs = esip:make_hdrs()},
-                               {?MODULE, response, []}]),
+            %% timer:apply_after(5000, esip, dialog_request,
+            %%                   [DialogID,
+            %%                    #sip{type = request, method = <<"BYE">>,
+            %%                         hdrs = esip:make_hdrs()},
+            %%                    {?MODULE, response, []}]),
             esip:make_response(
               Req,
               #sip{status = 200, type = response, body = Body,
-                   hdrs = [{contact, [{<<>>,
-                                       #uri{proto = <<"sip">>,
-                                            host = HostName,
-                                            port = 5090}, []}]}|NewHdrs]},
+                   hdrs = [{contact, esip:make_contact(udp)}|NewHdrs]},
               Tag);
         Err ->
             {Status, Reason} = esip:error_status(Err),
@@ -138,6 +140,11 @@ transaction(#sip{type = request, method = <<"sINVITE">>,
 transaction(#sip{type = request, method = <<"CANCEL">>} = Req, _TrID) ->
     esip:make_response(Req,
                        #sip{type = response, status = 487},
+                       esip:make_tag());
+transaction(#sip{type = request, method = <<"REGISTER">>} = Req, _Trid) ->
+    esip:make_response(Req,
+                       #sip{type = response, status = 200,
+                            hdrs = [{expires, 3600}]},
                        esip:make_tag());
 transaction(#sip{type = request} = Req, _) ->
     esip:make_response(Req,
@@ -156,7 +163,7 @@ response(#sip{status = Status} = Resp, Req, _) when Status >= 200, Status < 300 
             ok
     end;
 response(_Resp, _, _) ->
-    %%io:format("Resp: ~p~n", [_Resp]),
+    io:format("Resp: ~p~n", [_Resp]),
     ok.
 
 dialog_request(#sip{type = request, method = <<"BYE">>} = Req, _TrID) ->
@@ -167,13 +174,13 @@ dialog_request(#sip{type = request, method = <<"ACK">>}, _TrID) ->
 
 loop() ->
     ToURI = #uri{proto = <<"sip">>,
-                 user = <<"xram">>,
-                 host = <<"192.168.1.1">>,
+                 user = <<"nadya">>,
+                 host = <<"netbook.zinid.ru">>,
                  params = []},
     FromURI = #uri{proto = <<"sip">>,
                    user = <<"zinid">>,
-                   host = <<"192.168.1.1">>,
-                   port = 5090},
+                   host = <<"192.168.1.1">>},
+                   %% port = 5090},
     Hdrs = [{to, {<<>>, ToURI, []}},
             {from, {<<>>, FromURI, [{<<"tag">>, esip:make_tag()}]}}
             |esip:make_hdrs()],
@@ -209,3 +216,23 @@ loop() ->
         _ ->
 	    loop()
     end.
+
+decode_sdp(BinSDP) when is_binary(BinSDP) ->
+    decode_sdp(binary_to_list(BinSDP));
+
+decode_sdp(SDP) when is_list(SDP) ->
+    AttrList = string:tokens(SDP, "\r\n"),
+    decode_sdp(AttrList, []).
+
+decode_sdp([[A, $= | V] | T], Res) ->
+    PP = #'PropertyParm'{name = [A], value = [V]},
+    case megaco:decode_sdp(PP) of
+        {ok, SDP} ->
+            decode_sdp(T, [SDP|Res]);
+        _ ->
+            error
+    end;
+decode_sdp([], Res) ->
+    {ok, lists:reverse(Res)};
+decode_sdp(_, _) ->
+    error.

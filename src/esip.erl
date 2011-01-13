@@ -23,7 +23,8 @@
          timer1/0, timer2/0, timer4/0, reason/1, filter_hdrs/2,
          open_dialog/4, close_dialog/1, make_cseq/0, error_status/1,
          dialog_request/3, make_hdrs/0, mod/0, callback/1, callback/2,
-         callback/3, send/1, dialog_send/2, ack/1, make_contact/1]).
+         callback/3, send/1, dialog_send/2, ack/1, make_contact/1,
+         get_node_by_tag/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -34,14 +35,14 @@
 -include("esip.hrl").
 -include("esip_lib.hrl").
 
--record(state, {}).
+-record(state, {node_id}).
 
 %%====================================================================
 %% API
 %%====================================================================
 behaviour_info(callbacks) ->
     [{transaction_user, 1},
-     {request, 2},
+     {request, 1},
      {response, 1},
      {message_in, 4},
      {message_out, 4},
@@ -94,13 +95,16 @@ ack(DialogID = #dialog_id{}) ->
                                hdrs = esip:make_hdrs()}).
 
 make_tag() ->
-    gen_server:call(?MODULE, make_tag).
+    {NodeID, N} = gen_server:call(?MODULE, make_tag),
+    iolist_to_binary([NodeID, $-, int_to_list(N)]).
 
 make_branch() ->
-    gen_server:call(?MODULE, make_branch).
+    N = gen_server:call(?MODULE, make_branch),
+    iolist_to_binary(["z9hG4bK-", int_to_list(N)]).
 
 make_callid() ->
-    gen_server:call(?MODULE, make_callid).
+    N = gen_server:call(?MODULE, make_callid),
+    iolist_to_binary([int_to_list(N), "@", get_config_value(hostname)]).
 
 make_cseq() ->
     gen_server:call(?MODULE, make_cseq).
@@ -340,6 +344,29 @@ error_status(internal_server_error) ->
 error_status(_) ->
     {500, reason(500)}.
 
+get_node_by_tag(Tag) ->
+    case binary:split(Tag, <<"-">>) of
+        [NodeID, _] ->
+            get_node_by_id(NodeID);
+        _ ->
+            node()
+    end.
+
+get_node_by_id(NodeID) when is_binary(NodeID) ->
+    case catch erlang:binary_to_existing_atom(NodeID, utf8) of
+        {'EXIT', _} ->
+            node();
+        Res ->
+            get_node_by_id(Res)
+    end;
+get_node_by_id(NodeID) ->
+    case global:whereis_name(NodeID) of
+        Pid when is_pid(Pid) ->
+            node(Pid);
+        _ ->
+            node()
+    end.
+
 %% From http://www.iana.org/assignments/sip-parameters
 reason(100) -> <<"Trying">>;
 reason(180) -> <<"Ringing">>;
@@ -432,18 +459,16 @@ init([Opts]) ->
     self() ! {init, Opts},
     ets:new(esip_config, [named_table, public]),
     set_config(Opts),
-    {ok, #state{}}.
+    NodeID = list_to_binary(integer_to_list(random:uniform(1 bsl 32))),
+    register_node(NodeID),
+    {ok, #state{node_id = NodeID}}.
 
 handle_call(make_tag, _From, State) ->
-    Rnd = erlang:integer_to_list(random:uniform(1 bsl 32)),
-    {reply, iolist_to_binary([Rnd]), State};
+    {reply, {State#state.node_id, random:uniform(1 bsl 32)}, State};
 handle_call(make_branch, _From, State) ->
-    Rnd = erlang:integer_to_list(random:uniform(1 bsl 32)),
-    {reply, iolist_to_binary(["z9hG4bK-", Rnd]), State};
+    {reply, random:uniform(1 bsl 48), State};
 handle_call(make_callid, _From, State) ->
-    RndStr = erlang:integer_to_list(random:uniform(1 bsl 32)),
-    Reply = iolist_to_binary([RndStr, "@", get_config_value(hostname)]),
-    {reply, Reply, State};
+    {reply, random:uniform(1 bsl 48), State};
 handle_call(make_cseq, _From, State) ->
     {reply, random:uniform(1 bsl 10), State};
 handle_call(stop, _From, State) ->
@@ -492,3 +517,9 @@ set_config(Opts) ->
          (_) ->
               ok
       end, default_config() ++ Opts).
+
+int_to_list(N) ->
+    erlang:integer_to_list(N).
+
+register_node(NodeID) ->
+    global:register_name(erlang:binary_to_atom(NodeID, utf8), self()).
