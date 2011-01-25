@@ -26,7 +26,7 @@
 -include("esip.hrl").
 -include("esip_lib.hrl").
 
--record(state, {req, tu, sock, trid, branch}).
+-record(state, {req, tu, sock, trid, branch, cancelled = false}).
 
 %%%===================================================================
 %%% API
@@ -38,8 +38,13 @@ start(Request, TU) ->
     start(Request, TU, undefined).
 
 start(Request, TU, SIPSocket) ->
-    supervisor:start_child(esip_client_transaction_sup,
-                           [Request, TU, SIPSocket]).
+    case supervisor:start_child(esip_client_transaction_sup,
+                                [Request, TU, SIPSocket]) of
+        {ok, Pid} ->
+            {ok, #trid{owner = Pid, type = client}};
+        Err ->
+            Err
+    end.
 
 route(Pid, R) ->
     gen_fsm:send_event(Pid, R).
@@ -100,7 +105,15 @@ trying(Timer, State) when Timer == timer_B; Timer == timer_F ->
     pass_to_transaction_user(State, {error, timeout}),
     {stop, normal, State};
 trying(#sip{type = response} = Resp, State) ->
+    case State#state.cancelled of
+        {true, TU} ->
+            gen_fsm:send_event(self(), {cancel, TU});
+        _ ->
+            ok
+    end,
     proceeding(Resp, State);
+trying({cancel, TU}, State) ->
+    {next_state, trying, State#state{cancelled = {true, TU}}};
 trying(_Event, State) ->
     {next_state, trying, State}.
 

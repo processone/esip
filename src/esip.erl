@@ -12,7 +12,7 @@
 %% API
 -export([start_link/1, start/2, stop/0]).
 
--export([request/2, response/2, cancel/2, get_local_tag/1,
+-export([request/2, reply/2, cancel/2, get_local_tag/1,
 	 dialog_id/2, make_tag/0, make_branch/0, make_callid/0,
 	 decode/1, decode_uri/1, decode_uri_field/1, encode/1,
 	 encode_uri/1, encode_uri_field/1, match/2, rm_hdr/2,
@@ -72,15 +72,15 @@ stop() ->
 request(Request, TU) ->
     esip_transaction:request(Request, TU).
 
-response(TrID, Response) ->
-    esip_transaction:response(TrID, Response).
+reply(RequestOrTrID, Response) ->
+    esip_transaction:reply(RequestOrTrID, Response).
 
 dialog_request(DialogID, Req, TU) ->
     NewReq = esip_dialog:prepare_request(DialogID, Req),
     esip_transaction:request(NewReq, TU).
 
-cancel(TrID, TU) ->
-    esip_transaction:cancel(TrID, TU).
+cancel(RequestOrTrID, TU) ->
+    esip_transaction:cancel(RequestOrTrID, TU).
 
 send(Msg) ->
     esip_transport:send(Msg).

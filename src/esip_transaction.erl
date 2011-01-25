@@ -10,7 +10,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, process/2, response/2, cancel/2,
+-export([start_link/0, process/2, reply/2, cancel/2,
          request/2, insert/4, delete/3]).
 
 %% gen_server callbacks
@@ -71,10 +71,10 @@ process(_SIPSock, #sip{method = Method, hdrs = Hdrs, type = response} = Resp) ->
             esip:callback(response, [Resp])
     end.
 
-response(#trid{owner = Pid, type = server}, #sip{type = response} = Resp) ->
+reply(#trid{owner = Pid, type = server}, #sip{type = response} = Resp) ->
     esip_server_transaction:route(Pid, Resp);
-response(#sip{method = Method, type = request, hdrs = Hdrs},
-         #sip{type = response} = Resp) ->
+reply(#sip{method = Method, type = request, hdrs = Hdrs},
+      #sip{type = response} = Resp) ->
     Branch = esip:get_branch(Hdrs),
     case lookup(transaction_key(Branch, Method, server)) of
         {ok, Pid} ->
@@ -82,12 +82,20 @@ response(#sip{method = Method, type = request, hdrs = Hdrs},
         error ->
             ok
     end;
-response(_, _) ->
+reply(_, _) ->
     ok.
 
 request(#sip{type = request} = Req, TU) ->
     esip_client_transaction:start(Req, TU).
 
+cancel(#sip{method = Method, type = request, hdrs = Hdrs}, TU) ->
+    Branch = esip:get_branch(Hdrs),
+    case lookup(transaction_key(Branch, Method, client)) of
+        {ok, Pid} ->
+            esip_client_transaction:cancel(Pid, TU);
+        error ->
+            ok
+    end;
 cancel(#trid{type = client, owner = Pid}, TU) ->
     esip_client_transaction:cancel(Pid, TU).
 

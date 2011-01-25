@@ -37,8 +37,13 @@ start_link(SIPSocket, Request) ->
     gen_fsm:start_link(?MODULE, [SIPSocket, Request], []).
 
 start(SIPSocket, Request) ->
-    supervisor:start_child(esip_server_transaction_sup,
-                           [SIPSocket, Request]).
+    case supervisor:start_child(esip_server_transaction_sup,
+                                [SIPSocket, Request]) of
+        {ok, Pid} ->
+            {ok, #trid{owner = Pid, type = server}};
+        Err ->
+            Err
+    end.
 
 route(Pid, R) ->
     gen_fsm:send_event(Pid, R).
