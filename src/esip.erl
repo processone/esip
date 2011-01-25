@@ -24,7 +24,7 @@
          open_dialog/4, close_dialog/1, make_cseq/0, error_status/1,
          dialog_request/3, make_hdrs/0, mod/0, callback/1, callback/2,
          callback/3, send/1, dialog_send/2, ack/1, make_contact/1,
-         get_node_by_tag/1]).
+         get_node_by_tag/1, warning/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -449,6 +449,22 @@ reason(Status) when Status > 500, Status < 600 ->
     <<"Server Internal Error">>;
 reason(Status) when Status > 600, Status < 700 ->
     <<"Busy Everywhere">>.
+
+warning(300) -> <<"\"Incompatible network protocol\"">>;
+warning(301) -> <<"\"Incompatible network address formats\"">>;
+warning(302) -> <<"\"Incompatible transport protocol\"">>;
+warning(303) -> <<"\"Incompatible bandwidth units\"">>;
+warning(304) -> <<"\"Media type not available\"">>;
+warning(305) -> <<"\"Incompatible media format\"">>;
+warning(306) -> <<"\"Attribute not understood\"">>;
+warning(307) -> <<"\"Session description parameter not understood\"">>;
+warning(330) -> <<"\"Multicast not available\"">>;
+warning(331) -> <<"\"Unicast not available\"">>;
+warning(370) -> <<"\"Insufficient bandwidth\"">>;
+warning(380) -> <<"\"SIPS Not Allowed\"">>;
+warning(381) -> <<"\"SIPS Required\"">>;
+warning(399) -> <<"\"Miscellaneous warning\"">>;
+warning(Code) when Code > 300, Code < 400 -> <<"\"\"">>.
 
 %%====================================================================
 %% gen_server callbacks
