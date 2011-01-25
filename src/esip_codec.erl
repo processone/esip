@@ -42,7 +42,14 @@ init(MaxSize, Type, Buf) ->
 
 decode(Data, #state{start_line = undefined, buf = Buf,
                     got_size = GotSize} = State) ->
-    NewBuf = <<Buf/binary, Data/binary>>,
+    {NewBuf, DataSize} = case Buf of
+                             <<>> ->
+                                 Data1 = strip_wsp(Data, left),
+                                 {Data1, size(Data1)};
+                             _ ->
+                                 {<<Buf/binary, Data/binary>>,
+                                  size(Data)}
+                         end,
     case binary:match(NewBuf, <<"\r\n">>) of
         {Pos, Len} ->
             <<Head:Pos/binary, _:Len/binary, Tail/binary>> = NewBuf,
@@ -56,7 +63,7 @@ decode(Data, #state{start_line = undefined, buf = Buf,
             end;
         nomatch ->
             check_size(State#state{buf = NewBuf,
-                                   got_size = GotSize + size(Data)})
+                                   got_size = GotSize + DataSize})
     end;
 decode(Data, #state{more_size = MoreSize, got_size = GotSize,
                     max_size = MaxSize, method = CSeqMethod,
