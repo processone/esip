@@ -100,7 +100,7 @@ transaction(#sip{type = request, method = <<"INVITE">>} = Req, _) ->
     Tag = esip:make_tag(),
     case esip:open_dialog(Req, Tag, early, {?MODULE, dialog_request, []}) of
         {ok, _DialogID} ->
-            CType = esip:get_hdr('content-type', Req#sip.hdrs),
+            %%CType = esip:get_hdr('content-type', Req#sip.hdrs),
             esip:make_response(
               Req, #sip{type = response, status = 180},
                         %% hdrs = [{'content-type', CType}],
@@ -114,11 +114,11 @@ transaction(#sip{type = request, method = <<"INVITE">>} = Req, _) ->
               Req, #sip{status = Status, type = response, reason = Reason},
               Tag)
     end;
-transaction(#sip{type = request, method = <<"INVITE">>,
+transaction(#sip{type = request, method = <<"_INVITE">>,
                  hdrs = Hdrs, body = Body} = Req, _) ->
     Tag = esip:make_tag(),
     case esip:open_dialog(Req, Tag, confirmed, {?MODULE, dialog_request, []}) of
-        {ok, DialogID} ->
+        {ok, _DialogID} ->
             %%io:format("Body: ~p~n", [decode_sdp(Body)]),
             NewHdrs = esip:filter_hdrs(['content-type'], Hdrs),
             %% timer:apply_after(5000, esip, dialog_request,
@@ -173,11 +173,11 @@ dialog_request(#sip{type = request, method = <<"ACK">>}, _TrID) ->
     ok.
 
 loop() ->
-    ToURI = #uri{proto = <<"sip">>,
+    ToURI = #uri{scheme = <<"sip">>,
                  user = <<"nadya">>,
                  host = <<"netbook.zinid.ru">>,
                  params = []},
-    FromURI = #uri{proto = <<"sip">>,
+    FromURI = #uri{scheme = <<"sip">>,
                    user = <<"zinid">>,
                    host = <<"192.168.1.1">>},
                    %% port = 5090},
@@ -216,23 +216,3 @@ loop() ->
         _ ->
 	    loop()
     end.
-
-decode_sdp(BinSDP) when is_binary(BinSDP) ->
-    decode_sdp(binary_to_list(BinSDP));
-
-decode_sdp(SDP) when is_list(SDP) ->
-    AttrList = string:tokens(SDP, "\r\n"),
-    decode_sdp(AttrList, []).
-
-decode_sdp([[A, $= | V] | T], Res) ->
-    PP = #'PropertyParm'{name = [A], value = [V]},
-    case megaco:decode_sdp(PP) of
-        {ok, SDP} ->
-            decode_sdp(T, [SDP|Res]);
-        _ ->
-            error
-    end;
-decode_sdp([], Res) ->
-    {ok, lists:reverse(Res)};
-decode_sdp(_, _) ->
-    error.

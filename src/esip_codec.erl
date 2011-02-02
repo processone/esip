@@ -185,7 +185,7 @@ decode_via(ViaData) ->
                                   #uri{host = Host, port = Port, params = Params} ->
                                       [#via{proto = Proto,
                                             version = {Maj-48, Min-48},
-                                            transport = Transport,
+                                            transport = to_upper(Transport),
                                             host = Host,
                                             port = Port,
                                             params = Params}];
@@ -228,22 +228,22 @@ decode_uri_field(Data, Acc) ->
 
 decode_uri(Data, URI) ->
     case binary:split(Data, <<":">>) of
-        [Proto, UserHost] ->
+        [Scheme, UserHost] ->
             case binary:split(UserHost, <<"@">>) of
                 [UserPass, HostPort] ->
                     case binary:split(UserPass, <<":">>) of
                         [User, Password] ->
                             decode_uri_host(HostPort,
-                                            URI#uri{proto = Proto,
+                                            URI#uri{scheme = Scheme,
                                                     user = User,
                                                     password = Password});
                         _ ->
                             decode_uri_host(HostPort,
-                                            URI#uri{proto = Proto,
+                                            URI#uri{scheme = Scheme,
                                                     user = UserPass})
                     end;
                 [HostPort] ->
-                    decode_uri_host(HostPort, URI#uri{proto = Proto})
+                    decode_uri_host(HostPort, URI#uri{scheme = Scheme})
             end;
         _ ->
             error
@@ -278,7 +278,7 @@ decode_uri_host(Data, URI) ->
             end
     end.
 
-encode_uri(#uri{proto = Proto,
+encode_uri(#uri{scheme = Scheme,
                 user = User,
                 password = Password,
                 host = Host,
@@ -298,7 +298,7 @@ encode_uri(#uri{proto = Proto,
                           true ->
                                HostPort
                        end,
-    [Proto, $:, UserPassHostPort, EncParams].
+    [Scheme, $:, UserPassHostPort, EncParams].
 
 encode_uri_field({Name, URI, FieldParams}) ->
     NewName = if Name /= <<>> ->
@@ -969,6 +969,9 @@ reverse(Bin) ->
 
 to_lower(Bin) ->
     list_to_binary(string:to_lower(binary_to_list(Bin))).
+
+to_upper(Bin) ->
+    list_to_binary(string:to_upper(binary_to_list(Bin))).
 
 to_integer(Bin, Min, Max) ->
     case catch list_to_integer(binary_to_list(Bin)) of

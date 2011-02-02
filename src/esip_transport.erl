@@ -7,14 +7,14 @@
 %%%-------------------------------------------------------------------
 -module(esip_transport).
 
--compile(export_all).
+%%-compile(export_all).
 
 %% API
--export([recv/2, send/1, send/2, connect/1, start_link/0,
+-export([recv/2, send/1, send/2, connect/2, start_link/0,
          register_socket/3, register_socket/4, unregister_socket/3,
          make_via_hdr/0, make_via_hdr/1, make_via_hdr/2,
          register_route/2, register_route/3, unregister_route/2,
-         unregister_route/3, resolve/1, make_contact/1,
+         unregister_route/3, resolve/1, make_contact/1, make_contact/0,
          have_route/3, get_route/0, get_route/1, via_transport_to_atom/1]).
 
 -behaviour(gen_server).
@@ -86,21 +86,33 @@ send(#sip_socket{peer = PeerAddr,
 
 send(#sip{type = response, hdrs = Hdrs} = Resp) ->
     [Via|_] = esip:get_hdrs(via, Hdrs),
-    case connect(Via) of
+    VirtualHost = case esip:get_hdr(to, Hdrs) of
+                      {_, #uri{host = Host}, _} ->
+                          Host;
+                      _ ->
+                          undefined
+                  end,
+    case connect(Via, VirtualHost) of
         {ok, SIPSocket} ->
             send(SIPSocket, Resp);
         Err ->
             Err
     end;
-send(#sip{type = request, uri = URI} = Req) ->
-    case connect(URI) of
+send(#sip{type = request, uri = URI, hdrs = Hdrs} = Req) ->
+    VirtualHost = case esip:get_hdr(from, Hdrs) of
+                      {_, #uri{host = Host}, _} ->
+                          Host;
+                      _ ->
+                          undefined
+                  end,
+    case connect(URI, VirtualHost) of
         {ok, SIPSock} ->
             send(SIPSock, Req);
         Err ->
             Err
     end.
 
-connect(URIorVia) ->
+connect(URIorVia, VHost) ->
     case resolve(URIorVia) of
         {ok, AddrsPorts, Transport} ->
             case lookup_socket(AddrsPorts, Transport) of
@@ -109,9 +121,12 @@ connect(URIorVia) ->
                 _ ->
                     case Transport of
                         tcp -> esip_tcp:connect(AddrsPorts);
-                        tls -> esip_tcp:connect(AddrsPorts, [{tls, true}]);
+                        tls -> esip_tcp:connect(AddrsPorts, [{tls, true},
+                                                             {vhost, VHost}]);
                         sctp -> esip_sctp:connect(AddrsPorts);
-                        tls_sctp -> esip_sctp:connect(AddrsPorts, [{tls, true}]);
+                        tls_sctp -> esip_sctp:connect(AddrsPorts,
+                                                      [{tls, true},
+                                                       {vhost, VHost}]);
                         udp ->
                             case ets:lookup(esip_route, udp) of
                                 [{_, _, _, Pid}|_] ->
@@ -241,6 +256,10 @@ make_via_hdr(Branch, Transport) ->
             {via, []}
     end.
 
+make_contact() ->
+    Host = esip:get_config_value(hostname),
+    [{<<>>, #uri{host = Host}, []}].
+
 make_contact(Transport) ->
     case get_route(Transport) of
         {ok, _, Host, Port} ->
@@ -255,7 +274,7 @@ make_contact(Transport) ->
                          tcp -> [{<<"transport">>, <<"tcp">>}];
                          _ -> []
                      end,
-            [{<<>>, #uri{proto = Scheme, host = Host,
+            [{<<>>, #uri{scheme = Scheme, host = Host,
                          port = Port, params = Params}, []}];
         error ->
             []
@@ -470,7 +489,7 @@ default_port(tls) -> 5061;
 default_port(tls_sctp) -> 5061;
 default_port(_) -> 5060.
 
-resolve(#uri{proto = Scheme} = URI) ->
+resolve(#uri{scheme = Scheme} = URI) ->
     case lists:member(Scheme, supported_uri_schemes()) of
         true ->
             SupportedTransports = case Scheme of
