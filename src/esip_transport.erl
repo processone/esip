@@ -437,7 +437,13 @@ prepare_request(#sip_socket{peer = {Addr, Port}, type = SockType},
                                       Params1
                               end,
                     NewVias = [{via, [Via#via{params = Params2}|RestVias]}|Vias],
-                    Request#sip{hdrs = NewVias ++ RestHdrs};
+                    NewRestHdrs = case esip:get_hdr('max-forwards', RestHdrs) of
+                                      undefined ->
+                                          [{'max-forwards', 70}|RestHdrs];
+                                      _ ->
+                                          RestHdrs
+                                  end,
+                    Request#sip{hdrs = NewVias ++ NewRestHdrs};
                 false ->
                     error
             end;
@@ -448,31 +454,27 @@ prepare_request(#sip_socket{peer = {Addr, Port}, type = SockType},
 prepare_response(_SIPSock, Response) ->
     Response.
 
-is_valid_hdrs(Hdrs, Type) ->
+is_valid_hdrs(Hdrs, _Type) ->
     try
         From = esip:get_hdr(from, Hdrs),
         To = esip:get_hdr(to, Hdrs),
         CSeq = esip:get_hdr(cseq, Hdrs),
         CallID = esip:get_hdr('call-id', Hdrs),
-        MaxForwards = esip:get_hdr('max-forwards', Hdrs),
         has_from(From) and has_to(To)
-            and has_max_forwards(MaxForwards, Type)
             and (CSeq /= undefined) and (CallID /= undefined)
     catch _:_ ->
             false
     end.
 
 is_valid_via(#via{transport = Transport,
-                  params = Params, version = Ver}, SockType) ->
+                  params = Params}, SockType) ->
     case via_transport_to_atom(Transport) of
         SockType ->
             case esip:get_param(<<"branch">>, Params) of
-                <<"z9hG4bK", _/binary>> ->
-                    true;
-                Branch when Branch /= <<>>, Ver /= {2,0} ->
-                    true;
+                <<>> ->
+                    false;
                 _ ->
-                    false
+                    true
             end;
         _ ->
             false
@@ -483,13 +485,6 @@ has_from(_) -> false.
 
 has_to({_, #uri{}, _}) -> true;
 has_to(_) -> false.
-
-has_max_forwards(N, request) when is_integer(N) ->
-    true;
-has_max_forwards(_, response) ->
-    true;
-has_max_forwards(_, _) ->
-    false.
 
 do_send(#sip_socket{type = Type, sock = Sock,
                     peer = Peer, addr = Addr}, Msg) ->
