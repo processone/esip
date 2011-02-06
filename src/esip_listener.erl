@@ -58,7 +58,7 @@ handle_call({add_listener, Port, Transport, Opts}, _From, State)
                 {error, _} = Err ->
                     format_listener_error(Port, Transport, Opts, Err);
                 ok ->
-                    esip_transport:register_route(Transport, Port, Pid)
+                    ok
             end
     end,
     {reply, Res, State};

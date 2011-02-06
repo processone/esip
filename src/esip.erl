@@ -24,7 +24,7 @@
          open_dialog/4, close_dialog/1, make_cseq/0, error_status/1,
          dialog_request/3, make_hdrs/0, mod/0, callback/1, callback/2,
          callback/3, send/1, dialog_send/2, ack/1, make_contact/1,
-         get_node_by_tag/1, warning/1, make_contact/0]).
+         get_node_by_tag/1, warning/1, make_contact/0, make_contact/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -104,7 +104,7 @@ make_branch() ->
 
 make_callid() ->
     N = gen_server:call(?MODULE, make_callid),
-    iolist_to_binary([int_to_list(N), "@", get_config_value(hostname)]).
+    iolist_to_binary([int_to_list(N)]).
 
 make_cseq() ->
     gen_server:call(?MODULE, make_cseq).
@@ -239,8 +239,11 @@ get_branch(Hdrs) ->
 make_contact() ->
     esip_transport:make_contact().
 
-make_contact(Transport) ->
-    esip_transport:make_contact(Transport).
+make_contact(VHost) ->
+    esip_transport:make_contact(VHost).
+
+make_contact(VHost, Transport) ->
+    esip_transport:make_contact(VHost, Transport).
 
 make_response(Req, Resp) ->
     make_response(Req, Resp, <<>>).
@@ -499,7 +502,21 @@ handle_cast(_Msg, State) ->
 handle_info({init, Opts}, State) ->
     lists:foreach(
       fun({listen, Port, Transport, LOpts}) ->
-              esip_listener:add_listener(Port, Transport, LOpts);
+              case esip_listener:add_listener(Port, Transport, LOpts) of
+                  {error, _} ->
+                      ok;
+                  _ ->
+                      ets:insert(esip_config,
+                                 {{listen, Port, Transport}, LOpts})
+              end;
+         ({route, VirtualHost, Transport, ROpts} = Route) ->
+              case process_route(Route) of
+                  ok ->
+                      ets:insert(esip_config,
+                                 {{route, VirtualHost, Transport}, ROpts});
+                  _ ->
+                      ?ERROR_MSG("Invalid 'route' option: ~p", [Route])
+              end;
          (_) ->
               ok
       end, Opts),
@@ -517,9 +534,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 default_config() ->
-    {ok, HostName} = inet:gethostname(),
-    [{hostname, HostName},
-     {max_forwards, 70},
+    [{max_forwards, 70},
      {timer1, 500},
      {timer2, 4000},
      {timer4, 5000},
@@ -527,9 +542,7 @@ default_config() ->
 
 set_config(Opts) ->
     lists:foreach(
-      fun({hostname, HostName}) ->
-              ets:insert(esip_config, {hostname, list_to_binary(HostName)});
-         ({Key, Value}) ->
+      fun({Key, Value}) ->
               ets:insert(esip_config, {Key, Value});
          (_) ->
               ok
@@ -540,3 +553,30 @@ int_to_list(N) ->
 
 register_node(NodeID) ->
     global:register_name(erlang:binary_to_atom(NodeID, utf8), self()).
+
+process_route({route, VirtualHost, Transport, ROpts}) ->
+    VHost = if is_list(VirtualHost) ->
+                    list_to_binary(VirtualHost);
+               is_binary(VirtualHost) ->
+                    VirtualHost;
+               true ->
+                    undefined
+            end,
+    Host = case lists:keysearch(host, 1, ROpts) of
+               {value, {_, HostName}} ->
+                   iolist_to_binary(HostName);
+               _ ->
+                   VHost
+           end,
+    Port = case lists:keysearch(port, 1, ROpts) of
+               {value, {_, RPort}} ->
+                   RPort;
+               _ ->
+                   undefined
+           end,
+    if Host /= undefined ->
+            esip_transport:register_route(VHost, Transport, Host, Port),
+            ok;
+       true ->
+            error
+    end.

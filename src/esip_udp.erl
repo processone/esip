@@ -69,7 +69,7 @@ init([Port, Opts]) ->
 	{ok, S} ->
             case inet:sockname(S) of
                 {ok, {IP, _}} ->
-                    esip_transport:register_route(udp, Port),
+                    esip_transport:register_udp_listener(self()),
                     {ok, #state{sock = S, ip = IP, port = Port}};
                 {error, Reason} ->
                     {stop, Reason}
@@ -101,9 +101,9 @@ handle_info({udp, S, IP, Port, Data}, #state{sock = S} = State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, #state{sock = S, port = Port}) ->
+terminate(_Reason, #state{sock = S}) ->
     catch gen_udp:close(S),
-    esip_transport:unregister_route(udp, Port),
+    esip_transport:unregister_udp_listener(self()),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

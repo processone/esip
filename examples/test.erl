@@ -31,9 +31,10 @@ init() ->
     register(?MODULE, self()),
     esip:start(?MODULE, [{listen, 5060, udp, [{ip, {192,168,1,1}}]},
                          {listen, 5060, tcp, [{ip, {192,168,1,1}}]},
-                         {hostname, "zinid.ru"}]),
-    %%self() ! options,
-    %%self() ! invite,
+                         {route, undefined, tcp, [{host, "zinid.ru"},
+                                                  {port, 5060}]},
+                         {route, undefined, udp, [{host, "zinid.ru"},
+                                                  {port, 5060}]}]),
     loop().
 
 %%%-------------------------------------------------------------------
@@ -49,7 +50,7 @@ message_in(_, _, _, _) ->
     ok.
 
 message_out(#sip{hdrs = Hdrs, type = Type, method = Method} = Msg,
-            Transport, _, _) ->
+            _Transport, _, _) ->
     Hdrs1 = case Type of
                 response ->
                     esip:set_hdr(server, ?VERSION, Hdrs);
@@ -57,7 +58,7 @@ message_out(#sip{hdrs = Hdrs, type = Type, method = Method} = Msg,
                     esip:set_hdr('user-agent', ?VERSION, Hdrs)
             end,
     Hdrs2 = if Type == request, Method == <<"INVITE">> ->
-                    esip:set_hdr(contact, esip:make_contact(Transport), Hdrs1);
+                    esip:set_hdr(contact, esip:make_contact(), Hdrs1);
                true ->
                     Hdrs1
             end,
@@ -175,14 +176,14 @@ dialog_request(#sip{type = request, method = <<"ACK">>}, _TrID) ->
 loop() ->
     ToURI = #uri{scheme = <<"sip">>,
                  user = <<"nadya">>,
-                 host = <<"zinid.ru">>,
-                 params = []},
+                 host = <<"netbook.zinid.ru">>,
+                 params = [{<<"transport">>, <<"udp">>}]},
     FromURI = #uri{scheme = <<"sip">>,
                    user = <<"zinid">>,
                    host = <<"192.168.1.1">>},
                    %% port = 5090},
     Hdrs = [{to, {<<>>, ToURI, []}},
-            {from, {<<>>, FromURI, [{<<"tag">>, esip:make_tag()}]}},
+            {from, {<<>>, FromURI, [{<<"tag">>, esip:make_tag()}]}}
             |esip:make_hdrs()],
     receive
         invite ->

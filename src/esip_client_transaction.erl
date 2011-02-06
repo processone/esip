@@ -242,7 +242,7 @@ connect(#state{sock = undefined}, #sip{uri = URI, hdrs = Hdrs} = Req) ->
     case esip_transport:connect(NewURI, VHost) of
         {ok, SIPSocket} ->
             Branch = esip:make_branch(),
-            NewHdrs = [esip_transport:make_via_hdr(Branch)|Hdrs],
+            NewHdrs = [esip_transport:make_via_hdr(VHost, Branch)|Hdrs],
             {ok, SIPSocket, Req#sip{hdrs = NewHdrs}, Branch};
         Err ->
             Err
@@ -252,6 +252,12 @@ connect(#state{sock = SIPSocket}, #sip{method = <<"CANCEL">>, hdrs = Hdrs} = Req
     Branch = esip:get_param(<<"branch">>, Via#via.params),
     {ok, SIPSocket, Req#sip{hdrs = [{via, [Via]}|TailHdrs]}, Branch};
 connect(#state{sock = SIPSocket}, #sip{hdrs = Hdrs} = Req) ->
+    VHost = case esip:get_hdr(from, Hdrs) of
+                {_, #uri{host = Host}, _} ->
+                    Host;
+                _ ->
+                    undefined
+            end,
     Branch = esip:make_branch(),
-    NewHdrs = [esip_transport:make_via_hdr(Branch)|Hdrs],
+    NewHdrs = [esip_transport:make_via_hdr(VHost, Branch)|Hdrs],
     {ok, SIPSocket, Req#sip{hdrs = NewHdrs}, Branch}.

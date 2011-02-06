@@ -7,15 +7,16 @@
 %%%-------------------------------------------------------------------
 -module(esip_transport).
 
-%%-compile(export_all).
+-compile(export_all).
 
 %% API
 -export([recv/2, send/1, send/2, connect/2, start_link/0,
-         register_socket/3, register_socket/4, unregister_socket/3,
-         make_via_hdr/0, make_via_hdr/1, make_via_hdr/2,
-         register_route/2, register_route/3, unregister_route/2,
-         unregister_route/3, resolve/1, make_contact/1, make_contact/0,
-         have_route/3, get_route/0, get_route/1, via_transport_to_atom/1]).
+         register_socket/3, unregister_socket/3,
+         register_udp_listener/1, unregister_udp_listener/1,
+         make_via_hdr/1, make_via_hdr/2,
+         register_route/4, unregister_route/4,
+         make_contact/0, make_contact/1, make_contact/2,
+         have_route/3, via_transport_to_atom/1]).
 
 -behaviour(gen_server).
 
@@ -27,6 +28,7 @@
 -include("esip_lib.hrl").
 -include_lib("kernel/include/inet.hrl").
 
+-record(route, {vhost, transport, host, port}).
 -record(state, {}).
 
 %%====================================================================
@@ -119,7 +121,7 @@ send(#sip{type = request, uri = URI, hdrs = Hdrs} = Req) ->
     end.
 
 connect(URIorVia, VHost) ->
-    case resolve(URIorVia) of
+    case resolve(URIorVia, VHost) of
         {ok, AddrsPorts, Transport} ->
             case lookup_socket(AddrsPorts, Transport) of
                 {ok, Sock} ->
@@ -137,8 +139,8 @@ connect(URIorVia, VHost) ->
                             esip_sctp:connect(AddrsPorts,
                                               [{tls, true}, {vhost, VHost}]);
                         udp ->
-                            case ets:lookup(esip_route, udp) of
-                                [{_, _, _, Pid}|_] ->
+                            case get_udp_listener() of
+                                {ok, Pid} ->
                                     esip_udp:connect(AddrsPorts, Pid);
                                 _ ->
                                     {error, eprotonosupport}
@@ -164,16 +166,7 @@ atom_to_via_transport(tls_sctp) -> <<"TLS-SCTP">>;
 atom_to_via_transport(_) -> <<>>.
 
 register_socket(Addr, Transport, Sock) ->
-    register_socket(Addr, Transport, Sock, unlimited).
-
-register_socket(Addr, Transport, Sock, Timeout) ->
-    ets:insert(esip_socket, {{Addr, Transport}, Sock}),
-    if Timeout /= unlimited ->
-            erlang:send_after(Timeout, ?MODULE, {delete, Addr, Transport, Sock}),
-            ok;
-       true ->
-            ok
-    end.
+    ets:insert(esip_socket, {{Addr, Transport}, Sock}).
 
 unregister_socket(Addr, Transport, Sock) ->
     ets:delete_object(esip_socket, {{Addr, Transport}, Sock}).
@@ -195,54 +188,83 @@ lookup_socket(Addr, Transport) ->
             error
     end.
 
-register_route(Transport, Port) ->
-    register_route(Transport, Port, self()).
+register_udp_listener(Pid) ->
+    ets:insert(esip_socket, {udp, Pid}).
 
-register_route(Transport, Port, Owner) ->
-    Host = esip:get_config_value(hostname),
-    ets:insert(esip_route, {Transport, Host, Port, Owner}).
+unregister_udp_listener(Pid) ->
+    ets:delete_object(esip_socket, {udp, Pid}).
 
-unregister_route(Transport, Port) ->
-    unregister_route(Transport, Port, self()).
+get_udp_listener() ->
+    case ets:lookup(esip_socket, udp) of
+        [{_, Pid}|_] ->
+            {ok, Pid};
+        _ ->
+            error
+    end.
 
-unregister_route(Transport, Port, Owner) ->
-    Host = esip:get_config_value(hostname),
-    ets:delete_object(esip_route, {Transport, Host, Port, Owner}).
+register_route(VirtualHost, Transport, Host, Port) ->
+    ets:insert(esip_route, #route{vhost = VirtualHost,
+                                  transport = Transport,
+                                  host = Host,
+                                  port = Port}).
+
+unregister_route(VirtualHost, Transport, Host, Port) ->
+    ets:delete_object(esip_route, #route{vhost = VirtualHost,
+                                         transport = Transport,
+                                         host = Host,
+                                         port = Port}).
 
 have_route(Transport, Host, Port) ->
-    case ets:match_object(esip_route, {Transport, Host, Port, '_'}) of
+    case ets:match_object(esip_route, #route{transport = Transport,
+                                             host = Host,
+                                             port = Port,
+                                             _ = '_'}) of
         [_|_] ->
             true;
         _ ->
             false
     end.
 
-get_route() ->
-    case ets:first(esip_route) of
-        '$end_of_table' ->
+get_route(VirtualHost) ->
+    case ets:lookup(esip_route, VirtualHost) of
+        [#route{transport = Transport, host = Host, port = Port}|_] ->
+            {ok, Transport, Host, Port};
+        _ when VirtualHost == undefined ->
             error;
-        Key ->
-            case ets:lookup(esip_route, Key) of
-                [{Transport, Host, Port, _Owner}|_] ->
+        _ ->
+            get_route(undefined)
+    end.
+
+get_route(VirtualHost, Transport) ->
+    case ets:lookup(esip_route, VirtualHost) of
+        [_|_] = Res ->
+            case lists:keysearch(Transport, #route.transport, Res) of
+                {value, #route{host = Host, port = Port}} ->
                     {ok, Transport, Host, Port};
                 _ ->
                     error
-            end
-    end.
-
-get_route(Transport) ->
-    case ets:match(esip_route, {Transport, '$1', '$2', '_'}) of
-        [[Host, Port]|_] ->
-            {ok, Transport, Host, Port};
+            end;
+        _ when VirtualHost == undefined ->
+            error;
         _ ->
-            error
+            get_route(undefined, Transport)
     end.
 
-make_via_hdr() ->
-    make_via_hdr(esip:make_branch()).
+get_all_routes(VirtualHost) ->
+    case ets:lookup(esip_route, VirtualHost) of
+        [_|_] = Routes ->
+            Routes;
+        [] when VirtualHost == undefined ->
+            [];
+        _ ->
+            get_all_routes(undefined)
+    end.
 
-make_via_hdr(Branch) ->
-    case get_route() of
+make_via_hdr(VirtualHost) ->
+    make_via_hdr(VirtualHost, esip:make_branch()).
+
+make_via_hdr(VirtualHost, Branch) ->
+    case get_route(VirtualHost) of
         {ok, Transport, Host, Port} ->
             {via, [#via{transport = atom_to_via_transport(Transport),
                         host = Host,
@@ -253,8 +275,8 @@ make_via_hdr(Branch) ->
             {via, []}
     end.
 
-make_via_hdr(Branch, Transport) ->
-    case get_route(Transport) of
+make_via_hdr(VirtualHost, Branch, Transport) ->
+    case get_route(VirtualHost, Transport) of
         {ok, _, Host, Port} ->
             {via, [#via{transport = atom_to_via_transport(Transport),
                         host = Host,
@@ -266,18 +288,25 @@ make_via_hdr(Branch, Transport) ->
     end.
 
 make_contact() ->
-    Host = esip:get_config_value(hostname),
-    [{<<>>, #uri{host = Host}, []}].
+    make_contact(undefined).
 
-make_contact(Transport) ->
-    case get_route(Transport) of
-        {ok, _, Host, Port} ->
-            Scheme = case Transport of
+make_contact(VirtualHost) ->
+    make_contact(VirtualHost, undefined).
+
+make_contact(VirtualHost, Transport) ->
+    Res = if Transport == undefined ->
+                  get_route(VirtualHost);
+             true ->
+                  get_route(VirtualHost, Transport)
+          end,
+    case Res of
+        {ok, Transport1, Host, Port} ->
+            Scheme = case Transport1 of
                          tls -> <<"sips">>;
                          tls_sctp -> <<"sips">>;
                          _ -> <<"sip">>
                      end,
-            Params = case Transport of
+            Params = case Transport1 of
                          udp -> [{<<"transport">>, <<"udp">>}];
                          sctp -> [{<<"transport">>, <<"stcp">>}];
                          tcp -> [{<<"transport">>, <<"tcp">>}];
@@ -285,27 +314,33 @@ make_contact(Transport) ->
                      end,
             [{<<>>, #uri{scheme = Scheme, host = Host,
                          port = Port, params = Params}, []}];
-        error ->
+        _ ->
             []
     end.
 
 fix_topmost_via(Transport, Hdrs) ->
+    VirtualHost = case esip:get_hdr(from, Hdrs) of
+                      {_, #uri{host = VHost}, _} ->
+                          VHost;
+                      _ ->
+                          undefined
+                  end,
     case esip:split_hdrs([via], Hdrs) of
         {[], RestHdrs} ->
-            [make_via_hdr(esip:make_branch(), Transport)|RestHdrs];
+            [make_via_hdr(VirtualHost, esip:make_branch(), Transport)|RestHdrs];
         {[{via, [Via|Vias]}|RestVias], RestHdrs} ->
-            NewVia = fix_via(Via, Transport),
+            NewVia = fix_via(Via, VirtualHost, Transport),
             [{via, [NewVia|Vias]}|RestVias] ++ RestHdrs
     end.
 
-fix_via(#via{transport = ViaT, host = Host, port = Port} = Via, T) ->
+fix_via(#via{transport = ViaT, host = Host, port = Port} = Via, VHost, T) ->
     case via_transport_to_atom(ViaT) of
         T ->
             Via;
         T1 ->
             case have_route(T1, Host, Port) of
                 true ->
-                    case get_route(T) of
+                    case get_route(VHost, T) of
                         {ok, _, NewHost, NewPort} ->
                             Via#via{host = NewHost,
                                     port = NewPort,
@@ -318,28 +353,26 @@ fix_via(#via{transport = ViaT, host = Host, port = Port} = Via, T) ->
             end
     end.
 
-transports('$end_of_table') ->
-    [];
-transports(T) ->
-    [T|transports(ets:next(esip_route, T))].
+supported_transports(VirtualHost) ->
+    supported_transports(VirtualHost, all).
 
-supported_transports() ->
-    transports(ets:first(esip_route)).
+supported_transports(VirtualHost, Type) ->
+    lists:flatmap(
+      fun(#route{transport = Transport}) ->
+              case Transport of
+                  tls when Type == tls ->
+                      [Transport];
+                  tls_sctp when Type == tls ->
+                      [Transport];
+                  _ when Type == tls ->
+                      [];
+                  _ ->
+                      [Transport]
+              end
+      end, get_all_routes(VirtualHost)).
 
-supported_transports(Type) ->
-    lists:filter(
-      fun(tls) when Type == tls ->
-              true;
-         (tls_sctp) when Type == tls ->
-              true;
-         (_) when Type == tls ->
-              false;
-         (_) ->
-              true
-      end, supported_transports()).
-
-supported_uri_schemes() ->
-    case supported_transports(tls) of
+supported_uri_schemes(VHost) ->
+    case supported_transports(VHost, tls) of
         [] ->
             [<<"sip">>];
         _ ->
@@ -351,7 +384,7 @@ supported_uri_schemes() ->
 %%====================================================================
 init([]) ->
     ets:new(esip_socket, [public, named_table, bag]),
-    ets:new(esip_route, [public, named_table, bag]),
+    ets:new(esip_route, [public, named_table, bag, {keypos, #route.vhost}]),
     {ok, #state{}}.
 
 handle_call(_Request, _From, State) ->
@@ -498,25 +531,25 @@ default_port(tls) -> 5061;
 default_port(tls_sctp) -> 5061;
 default_port(_) -> 5060.
 
-resolve(#uri{scheme = Scheme} = URI) ->
-    case lists:member(Scheme, supported_uri_schemes()) of
+resolve(#uri{scheme = Scheme} = URI, VHost) ->
+    case lists:member(Scheme, supported_uri_schemes(VHost)) of
         true ->
             SupportedTransports = case Scheme of
                                       <<"sips">> ->
-                                          supported_transports(tls);
+                                          supported_transports(VHost, tls);
                                       _ ->
-                                          supported_transports()
+                                          supported_transports(VHost)
                                   end,
             case SupportedTransports of
                 [] ->
                     {error, unsupported_transport};
                 _ ->
-                    resolve(URI, SupportedTransports)
+                    do_resolve(URI, SupportedTransports)
             end;
         false ->
             {error, unsupported_uri_scheme}
     end;
-resolve(#via{transport = ViaTransport} = Via) ->
+resolve(#via{transport = ViaTransport} = Via, VHost) ->
     Transport = case ViaTransport of
                     <<"TLS">> -> tls;
                     <<"TLS-SCTP">> -> tls_sctp;
@@ -525,14 +558,14 @@ resolve(#via{transport = ViaTransport} = Via) ->
                     <<"SCTP">> -> sctp;
                     _ -> unknown
                 end,
-    case lists:member(Transport, supported_transports()) of
+    case lists:member(Transport, supported_transports(VHost)) of
         true ->
-            resolve(Via, Transport);
+            do_resolve(Via, Transport);
         false ->
             {error, unsupported_transport}
     end.
 
-resolve(#uri{host = Host, port = Port, params = Params}, SupportedTransports) ->
+do_resolve(#uri{host = Host, port = Port, params = Params}, SupportedTransports) ->
     case esip:get_param(<<"transport">>, Params) of
         <<>> ->
             [FallbackTransport|_] = lists:reverse(SupportedTransports),
@@ -571,7 +604,7 @@ resolve(#uri{host = Host, port = Port, params = Params}, SupportedTransports) ->
                     {error, unsupported_transport}
             end
     end;
-resolve(#via{transport = ViaTransport, host = Host,
+do_resolve(#via{transport = ViaTransport, host = Host,
              port = Port, params = Params}, Transport) ->
     NewPort = if ViaTransport == <<"UDP">> ->
                       case esip:get_param(<<"rport">>, Params) of
