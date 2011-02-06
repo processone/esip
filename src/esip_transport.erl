@@ -99,13 +99,19 @@ send(#sip{type = response, hdrs = Hdrs} = Resp) ->
             Err
     end;
 send(#sip{type = request, uri = URI, hdrs = Hdrs} = Req) ->
+    NewURI = case esip:get_hdrs(route, Hdrs) of
+                 [{_, RouteURI, _}|_] ->
+                     RouteURI;
+                 _ ->
+                     URI
+             end,
     VirtualHost = case esip:get_hdr(from, Hdrs) of
                       {_, #uri{host = Host}, _} ->
                           Host;
                       _ ->
                           undefined
                   end,
-    case connect(URI, VirtualHost) of
+    case connect(NewURI, VirtualHost) of
         {ok, SIPSock} ->
             send(SIPSock, Req);
         Err ->
@@ -120,13 +126,16 @@ connect(URIorVia, VHost) ->
                     {ok, Sock};
                 _ ->
                     case Transport of
-                        tcp -> esip_tcp:connect(AddrsPorts);
-                        tls -> esip_tcp:connect(AddrsPorts, [{tls, true},
-                                                             {vhost, VHost}]);
-                        sctp -> esip_sctp:connect(AddrsPorts);
-                        tls_sctp -> esip_sctp:connect(AddrsPorts,
-                                                      [{tls, true},
-                                                       {vhost, VHost}]);
+                        tcp ->
+                            esip_tcp:connect(AddrsPorts);
+                        tls ->
+                            esip_tcp:connect(AddrsPorts,
+                                             [{tls, true}, {vhost, VHost}]);
+                        sctp ->
+                            esip_sctp:connect(AddrsPorts);
+                        tls_sctp ->
+                            esip_sctp:connect(AddrsPorts,
+                                              [{tls, true}, {vhost, VHost}]);
                         udp ->
                             case ets:lookup(esip_route, udp) of
                                 [{_, _, _, Pid}|_] ->
@@ -385,8 +394,8 @@ prepare_request(#sip_socket{peer = {Addr, Port}, type = SockType},
                                                      AddrBin,
                                                      Params)
                               end,
-                    Params2 = case lists:keysearch(<<"rport">>, 1, Params1) of
-                                  {value, {_, <<>>}} ->
+                    Params2 = case esip:get_param(<<"rport">>, Params1, false) of
+                                  <<>> ->
                                       esip:set_param(<<"rport">>,
                                                      list_to_binary(
                                                        integer_to_list(Port)),

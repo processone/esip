@@ -175,14 +175,14 @@ dialog_request(#sip{type = request, method = <<"ACK">>}, _TrID) ->
 loop() ->
     ToURI = #uri{scheme = <<"sip">>,
                  user = <<"nadya">>,
-                 host = <<"netbook.zinid.ru">>,
+                 host = <<"zinid.ru">>,
                  params = []},
     FromURI = #uri{scheme = <<"sip">>,
                    user = <<"zinid">>,
                    host = <<"192.168.1.1">>},
                    %% port = 5090},
     Hdrs = [{to, {<<>>, ToURI, []}},
-            {from, {<<>>, FromURI, [{<<"tag">>, esip:make_tag()}]}}
+            {from, {<<>>, FromURI, [{<<"tag">>, esip:make_tag()}]}},
             |esip:make_hdrs()],
     receive
         invite ->
@@ -210,7 +210,7 @@ loop() ->
             Req = #sip{type = request,
                        method = <<"OPTIONS">>,
                        uri = ToURI,
-                       hdrs = esip:set_hdr('max-forwards', 0, Hdrs)},
+                       hdrs = esip:set_hdr('max-forwards', 70, Hdrs)},
             esip:request(Req, {?MODULE, response, []}),
             loop();
         _ ->

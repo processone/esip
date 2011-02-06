@@ -16,8 +16,8 @@
 	 dialog_id/2, make_tag/0, make_branch/0, make_callid/0,
 	 decode/1, decode_uri/1, decode_uri_field/1, encode/1,
 	 encode_uri/1, encode_uri_field/1, match/2, rm_hdr/2,
-         add_hdr/3, set_hdr/3, get_hdr/2, get_hdr_b/2, get_hdrs/2,
-         split_hdrs/2, get_param/2, has_param/2, set_param/3,
+         add_hdr/3, set_hdr/3, get_hdr/2, get_hdr/3, get_hdrs/2,
+         split_hdrs/2, get_param/2, get_param/3, has_param/2, set_param/3,
          get_branch/1, make_response/2, make_response/3,
          get_config_value/1, set_config_value/2, get_config/0,
          timer1/0, timer2/0, timer4/0, reason/1, filter_hdrs/2,
@@ -176,19 +176,14 @@ set_hdr(Key, Val, Hdrs) ->
     lists:reverse([{Key, Val}|Res]).
 
 get_hdr(Hdr, Hdrs) ->
-    case lists:keysearch(Hdr, 1, Hdrs) of
-        {value, {_, Val}} ->
-            Val;
-        false ->
-            undefined
-    end.
+    get_hdr(Hdr, Hdrs, undefined).
 
-get_hdr_b(Hdr, Hdrs) ->
+get_hdr(Hdr, Hdrs, Default) ->
     case lists:keysearch(Hdr, 1, Hdrs) of
         {value, {_, Val}} ->
             Val;
         false ->
-            <<>>
+            Default
     end.
 
 get_hdrs(Hdr, Hdrs) ->
@@ -216,11 +211,14 @@ split_hdrs(HdrList, Hdrs) ->
       end, Hdrs).
 
 get_param(Param, Params) ->
+    get_param(Param, Params, <<>>).
+
+get_param(Param, Params, Default) ->
     case lists:keysearch(Param, 1, Params) of
         {value, {_, Val}} ->
             Val;
         false ->
-            <<>>
+            Default
     end.
 
 has_param(Param, Params) ->
