@@ -124,7 +124,5 @@ transport_recv(SIPSock, Data) ->
                     ok
             end;
 	Err ->
-	    ?ERROR_MSG("failed to decode:~n"
-		       "** Data: ~p~n** Reason: ~p",
-		       [Data, Err])
+	    Err
     end.

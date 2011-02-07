@@ -15,155 +15,68 @@
 
 -include("esip.hrl").
 
--record(state, {buf, max_size, got_size, more_size,
-                start_line, hdrs, method, type}).
-
 %%%===================================================================
 %%% API
 %%%===================================================================
 decode(Data) ->
-    decode(Data, init(undefined, datagram)).
+    decode(Data, datagram).
 
-init(MaxSize) ->
-    init(MaxSize, stream).
+decode(Data, stream) ->
+    case binary:match(Data, <<"\r\n\r\n">>) of
+        {_, _} ->
+            do_decode(Data, stream);
+        _ ->
+            more
+    end;
+decode(Data, datagram) ->
+    do_decode(Data, datagram).
 
-init(MaxSize, Type) ->
-    init(MaxSize, Type, <<>>).
-
-init(MaxSize, Type, Buf) ->
-    #state{buf = Buf,
-           max_size = MaxSize,
-           got_size = 0,
-           more_size = 0,
-           start_line = undefined,
-           method = <<>>,
-           type = Type,
-           hdrs = []}.
-
-decode(Data, #state{start_line = undefined, buf = Buf,
-                    got_size = GotSize} = State) ->
-    {NewBuf, DataSize} = case Buf of
-                             <<>> ->
-                                 Data1 = strip_wsp(Data, left),
-                                 {Data1, size(Data1)};
-                             _ ->
-                                 {<<Buf/binary, Data/binary>>,
-                                  size(Data)}
-                         end,
-    case binary:match(NewBuf, <<"\r\n">>) of
+do_decode(Data, Type) ->
+    case binary:match(Data, <<"\r\n">>) of
         {Pos, Len} ->
-            <<Head:Pos/binary, _:Len/binary, Tail/binary>> = NewBuf,
+            <<Head:Pos/binary, _:Len/binary, Tail/binary>> = Data,
             case decode_start_line(Head) of
                 {error, _Reason} = Err ->
                     Err;
                 StartLine ->
-                    decode(Tail, State#state{start_line = StartLine,
-                                             got_size = GotSize + Pos + Len,
-                                             buf = <<>>})
+                    do_decode(Tail, StartLine, Type)
             end;
         nomatch ->
-            check_size(State#state{buf = NewBuf,
-                                   got_size = GotSize + DataSize})
-    end;
-decode(Data, #state{more_size = MoreSize, got_size = GotSize,
-                    max_size = MaxSize, method = CSeqMethod,
-                    buf = Buf, hdrs = Hdrs, type = Type,
-                    start_line = StartLine} = State) when MoreSize > 0 ->
-    case Data of
-        <<Head:MoreSize/binary, NewBuf/binary>> ->
-            Body = <<Buf/binary, Head/binary>>,
-            finish_decode(StartLine, CSeqMethod, Body, Hdrs, NewBuf, State);
-        _ ->
-            NewBuf = <<Buf/binary, Data/binary>>,
-            check_size(#state{more_size = MoreSize - size(NewBuf),
-                              got_size = GotSize + size(Data),
-                              max_size = MaxSize,
-                              buf = NewBuf,
-                              hdrs = Hdrs,
-                              method = CSeqMethod,
-                              type = Type,
-                              start_line = StartLine})
-    end;
-decode(Data, #state{start_line = StartLine,
-                    method = Method,
-                    buf = Buf,
-                    type = Type,
-                    max_size = MaxSize,
-                    got_size = GotSize,
-                    hdrs = Hdrs} = State) ->
-    NewBuf = <<Buf/binary, Data/binary>>,
-    NewGotSize = GotSize + size(Data),
-    case decode_hdrs(NewBuf, {Method, Hdrs}) of
-        {ok, NewMethod, NewHdrs, Body} when Type == datagram ->
-            finish_decode(StartLine, NewMethod,
-                          Body, NewHdrs, <<>>, State);
-        {ok, NewMethod, NewHdrs, Body} ->
-            case esip:get_hdr('content-length', NewHdrs) of
-                undefined ->
-                    {error, no_content_length};
-                L ->
-                    case Body of
-                        <<NewBody:L/binary, Tail/binary>> ->
-                            finish_decode(StartLine, NewMethod,
-                                          NewBody, NewHdrs, Tail, State);
-                        _ ->
-                            check_size(#state{start_line = StartLine,
-                                              method = NewMethod,
-                                              hdrs = NewHdrs,
-                                              buf = Body,
-                                              got_size = NewGotSize,
-                                              max_size = MaxSize,
-                                              type = Type,
-                                              more_size = L - size(Body)})
-                    end
+            more
+    end.
+
+do_decode(Tail, StartLine, Type) ->
+    Method = case StartLine of
+                 {response, _, _, _} ->
+                     <<>>;
+                 {request, _, M, _} ->
+                     M
+             end,
+    case decode_hdrs(Tail, {Method, []}) of
+        {ok, CSeqMethod, Hdrs, Body} ->
+            Msg = case StartLine of
+                      {response, Ver, Status, Reason} ->
+                          #sip{type = response,
+                               method = CSeqMethod,
+                               version = Ver,
+                               status = Status,
+                               reason = Reason,
+                               hdrs = Hdrs};
+                      {request, Ver, Method, URI} ->
+                          #sip{type = request,
+                               version = Ver,
+                               method = Method,
+                               uri = URI,
+                               hdrs = Hdrs}
+                  end,
+            case Type of
+                datagram ->
+                    {ok, Msg#sip{body = Body}};
+                _ ->
+                    {ok, Msg, Body}
             end;
-        {more, NewData, {NewMethod, NewHdrs}} ->
-            check_size(#state{start_line = StartLine,
-                              method = NewMethod,
-                              hdrs = NewHdrs,
-                              buf = NewData,
-                              max_size = MaxSize,
-                              more_size = 0,
-                              type = Type,
-                              got_size = NewGotSize});
         Err ->
             Err
-    end.
-
-finish_decode(StartLine, CSeqMethod, Body, Hdrs, NewBuf,
-              #state{max_size = MaxSize, type = Type}) ->
-    Msg = case StartLine of
-              {response, Ver, Status, Reason} ->
-                  #sip{type = response,
-                       method = CSeqMethod,
-                       version = Ver,
-                       status = Status,
-                       reason = Reason,
-                       hdrs = Hdrs,
-                       body = Body};
-              {request, Ver, Method, URI} ->
-                  #sip{type = request,
-                       version = Ver,
-                       method = Method,
-                       uri = URI,
-                       hdrs = Hdrs,
-                       body = Body}
-          end,
-    case Type of
-        datagram ->
-            {ok, Msg};
-        _ ->
-            {ok, Msg, init(MaxSize, Type, NewBuf)}
-    end.
-
-check_size(#state{got_size = GotSize, type = Type,
-                  max_size = MaxSize} = State) ->
-    if GotSize > MaxSize ->
-            {error, too_big};
-       Type == datagram ->
-            {error, incomplete};
-       true ->
-            {more, State}
     end.
 
 decode_uri(Data) ->
@@ -177,16 +90,16 @@ decode_via(ViaData) ->
       fun(<<>>) ->
               [];
          (Data) ->
-              case binary:split(Data, <<" ">>) of
-                  [Head, Tail] ->
-                      case binary:split(Head, <<"/">>, [global]) of
-                          [Proto, <<Maj, $., Min>>, Transport] ->
-                              case decode_uri_host(Tail, #uri{}) of
+              case split(Data, $/, 3) of
+                  [Proto, <<Maj, $., Min>>, Tail] ->
+                      case split(Tail, $ , 1) of
+                          [Transport, Tail1] ->
+                              case decode_uri_host(Tail1, #uri{}) of
                                   #uri{host = Host, port = Port, params = Params} ->
                                       [#via{proto = Proto,
                                             version = {Maj-48, Min-48},
                                             transport = to_upper(Transport),
-                                            host = Host,
+                                            host = strip_wsp(Host),
                                             port = Port,
                                             params = Params}];
                                   error ->
@@ -208,22 +121,44 @@ decode_uri_field(Data, Acc) ->
                     case split(Tail2, $,, 1) of
                         [Params, Rest] ->
                             FParams = decode_params(Params),
-                            decode_uri_field(
-                              Rest, [{Name, decode_uri(Head), FParams}|Acc]);
+                            case decode_uri(Head) of
+                                error ->
+                                    error;
+                                U ->
+                                    decode_uri_field(
+                                      Rest, [{Name, U, FParams}|Acc])
+                            end;
                         [Params] ->
                             FParams = decode_params(Params),
-                            [{Name, decode_uri(Head), FParams}|Acc]
+                            case decode_uri(Head) of
+                                error ->
+                                    error;
+                                U ->
+                                    [{Name, U, FParams}|Acc]
+                            end
                     end;
                 _ ->
                     Acc
             end;
-        [URI] ->
+        [<<C, _/binary>> = URI] when C /= $", C /= $' ->
             case split(URI, $;, 1) of
                 [_] ->
-                    [{<<>>, decode_uri(URI), []}|Acc];
+                    case decode_uri(URI) of
+                        error ->
+                            error;
+                        U ->
+                            [{<<>>, U, []}|Acc]
+                    end;
                 [Head, Params] ->
-                    [{<<>>, decode_uri(Head), decode_params(Params)}|Acc]
-            end
+                    case decode_uri(Head) of
+                        error ->
+                            error;
+                        U ->
+                            [{<<>>, U, decode_params(Params)}|Acc]
+                    end
+            end;
+        _ ->
+            error
     end.
 
 decode_uri(Data, URI) ->
@@ -455,8 +390,8 @@ decode_hdr(<<"cseq">>, Val) ->
     {ok, N} = to_integer(CSeq, 0, unlimited),
     {cseq, N, Method};
 decode_hdr('Date', Val) ->
-    %%TODO
-    {date, Val};
+    {_, _} = Date = httpd_util:convert_request_date(binary_to_list(Val)),
+    {date, Date};
 decode_hdr(<<"error-info">>, Val) ->
     %%TODO
     {'error-info', Val};
@@ -712,8 +647,10 @@ encode_hdr('content-type', Val, _) ->
     [<<"Content-Type: ">>, encode_type_params(Val)];
 encode_hdr(cseq, Val, Method) ->
     [<<"CSeq: ">>, integer_to_list(Val), $ , Method];
-encode_hdr(date, Val, _) ->
-    %%TODO
+encode_hdr(date, {{YYYY,MM,DD},{Hour,Min,Sec}}, _) ->
+    DayNumber = calendar:day_of_the_week({YYYY,MM,DD}),
+    Val = io_lib:format("~s, ~2.2.0w ~3.s ~4.4.0w ~2.2.0w:~2.2.0w:~2.2.0w GMT",
+                        [day(DayNumber),DD,month(MM),YYYY,Hour,Min,Sec]),
     [<<"Date: ">>, Val];
 encode_hdr('error-info', Val, _) ->
     %%TODO
@@ -841,8 +778,10 @@ encode_hdr(warning, Val, _) ->
     [<<"Warning: ">>, join(L, ", ")];
 encode_hdr('www-authenticate', {Head, Tail}, _) ->
     [<<"WWW-Authenticate: ">>, Head, $ , join_params(Tail, ", ")];
+encode_hdr(Key, Val, _) when is_binary(Key), is_binary(Val) ->
+    [Key, ": ", Val];
 encode_hdr(Key, Val, _) ->
-    [Key, ": ", Val].
+    erlang:error({bad_header, Key, Val}).
 
 prepare_hdrs(Hdrs) ->
     lists:reverse(Hdrs).
@@ -1011,6 +950,31 @@ join([], _Sep) ->
     [];
 join([H|T], Sep) ->
     [H, [[Sep, X] || X <- T]].
+
+%% day
+
+day(1) -> "Mon";
+day(2) -> "Tue";
+day(3) -> "Wed";
+day(4) -> "Thu";
+day(5) -> "Fri";
+day(6) -> "Sat"; 
+day(7) -> "Sun".
+
+%% month
+
+month(1) -> "Jan";
+month(2) -> "Feb";
+month(3) -> "Mar";
+month(4) -> "Apr";
+month(5) -> "May";
+month(6) -> "Jun";
+month(7) -> "Jul";
+month(8) -> "Aug";
+month(9) -> "Sep";
+month(10) -> "Oct";
+month(11) -> "Nov";
+month(12) -> "Dec".
 
 msg1() ->
     <<"OPTIONS sip:xram@zinid.ru:5090 SIP/2.0\r\n"

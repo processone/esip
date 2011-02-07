@@ -7,7 +7,7 @@
 %%%-------------------------------------------------------------------
 -module(esip_transport).
 
--compile(export_all).
+%%-compile(export_all).
 
 %% API
 -export([recv/2, send/1, send/2, connect/2, start_link/0,
@@ -393,9 +393,6 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({delete, Addr, Transport, Sock}, State) ->
-    unregister_socket(Addr, Transport, Sock),
-    {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 

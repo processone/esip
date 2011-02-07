@@ -20,7 +20,8 @@
 -include("esip.hrl").
 -include("esip_lib.hrl").
 
--record(state, {type, addr, peer, sock, codec, location}).
+-record(state, {type, addr, peer, sock, buf = <<>>, max_size,
+                location, msg, wait_size}).
 
 %%%===================================================================
 %%% API
@@ -53,11 +54,11 @@ send(Sock, Data) ->
 %%%===================================================================
 init([]) ->
     MaxSize = esip:get_config_value(max_msg_size),
-    {ok, #state{codec = esip_codec:init(MaxSize, stream)}};
+    {ok, #state{max_size = MaxSize}};
 init([Sock, Peer, MyAddr]) ->
     inet:setopts(Sock, [{active, once}]),
     MaxSize = esip:get_config_value(max_msg_size),
-    {ok, #state{codec = esip_codec:init(MaxSize, stream),
+    {ok, #state{max_size = MaxSize,
                 sock = Sock,
                 peer = Peer,
                 addr = MyAddr,
@@ -91,7 +92,7 @@ handle_info({tcp, Sock, Data},
             #state{type = Type, addr = Addr, peer = Peer} = State) ->
     inet:setopts(Sock, [{active, once}]),
     esip:callback(data_in, [Type, Peer, Addr, Data]),
-    transport_recv(State, Data);
+    process_data(State, Data);
 handle_info({tcp_closed, _Sock}, State) ->
     {stop, normal, State};
 handle_info({tcp_error, _Sock, _Reason}, State) ->
@@ -130,26 +131,50 @@ fail_or_proceed(_Err, Addrs) ->
 make_sip_socket(#state{type = Type, addr = MyAddr, peer = Peer, sock = Sock}) ->
     #sip_socket{type = Type, addr = MyAddr, sock = Sock, peer = Peer}.
 
-transport_recv(#state{codec = Codec} = State, Data) ->
-    case catch esip_codec:decode(Data, Codec) of
-        {ok, Msg, NewCodec} ->
-            SIPSock = make_sip_socket(State),
-            case catch esip_transport:recv(SIPSock, Msg) of
-                {'EXIT', Reason} ->
-                    ?ERROR_MSG("transport layer failed:~n"
-                               "** Packet: ~p~n** Reason: ~p",
-                               [Msg, Reason]);
+process_data(#state{buf = Buf, max_size = MaxSize,
+                    msg = undefined} = State, Data) ->
+    NewBuf = case Buf of
+                 <<>> ->
+                     esip_codec:strip_wsp(Data, left);
+                 _ ->
+                     <<Buf/binary, Data/binary>>
+             end,
+    case catch esip_codec:decode(NewBuf, stream) of
+        {ok, Msg, Tail} ->
+            case esip:get_hdr('content-length', Msg#sip.hdrs) of
+                N when is_integer(N), N >= 0, N =< MaxSize ->
+                    process_data(State#state{buf = <<>>,
+                                             msg = Msg,
+                                             wait_size = N}, Tail);
                 _ ->
-                    ok
-            end,
-            transport_recv(State#state{codec = NewCodec}, <<>>);
-        {more, NewCodec} ->
-            {noreply, State#state{codec = NewCodec}};
-        Err ->
-            ?ERROR_MSG("failed to decode:~n"
-                       "** Data: ~p~n"
-                       "** Codec: ~p~n"
-                       "** Reason: ~p",
-                       [Data, Codec, Err]),
+                    {stop, normal, State}
+            end;
+        more when size(NewBuf) < MaxSize ->
+            {noreply, State#state{buf = NewBuf}};
+        _ ->
             {stop, normal, State}
+    end;
+process_data(#state{buf = Buf, max_size = MaxSize,
+                    msg = Msg, wait_size = WaitSize} = State, Data) ->
+    NewBuf = <<Buf/binary, Data/binary>>,
+    case NewBuf of
+        <<Body:WaitSize/binary, Tail/binary>> ->
+            NewState = State#state{buf = Tail, msg = undefined},
+            transport_recv(NewState, Msg#sip{body = Body}),
+            process_data(NewState, <<>>);
+        _ when size(NewBuf) < MaxSize ->
+            {noreply, State#state{buf = NewBuf}};
+        _ ->
+            {stop, normal, State}
+    end.
+
+transport_recv(State, Msg) ->
+    SIPSock = make_sip_socket(State),
+    case catch esip_transport:recv(SIPSock, Msg) of
+        {'EXIT', Reason} ->
+            ?ERROR_MSG("transport layer failed:~n"
+                       "** Packet: ~p~n** Reason: ~p",
+                       [Msg, Reason]);
+        _ ->
+            ok
     end.
