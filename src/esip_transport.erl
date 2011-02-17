@@ -406,12 +406,12 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%====================================================================
 prepare_request(#sip_socket{peer = {Addr, Port}, type = SockType},
-                #sip{hdrs = Hdrs, type = Type} = Request) ->
+                #sip{hdrs = Hdrs} = Request) ->
     case esip:split_hdrs([via], Hdrs) of
         {[{_, [#via{params = Params, host = Host} = Via|RestVias]}|Vias],
          RestHdrs} ->
             case is_valid_via(Via, SockType)
-                andalso is_valid_hdrs(RestHdrs, Type) of
+                andalso is_valid_hdrs(RestHdrs) of
                 true ->
                     Params1 = case inet_parse:address(
                                      binary_to_list(Host)) of
@@ -448,10 +448,26 @@ prepare_request(#sip_socket{peer = {Addr, Port}, type = SockType},
             error
     end.
 
-prepare_response(_SIPSock, Response) ->
-    Response.
+prepare_response(#sip_socket{type = SockType}, #sip{hdrs = Hdrs} = Response) ->
+    case esip:get_hdrs(via, Hdrs) of
+        [#via{host = Host, port = Port, transport = Transport} = Via|_] ->
+            case is_valid_via(Via, SockType) andalso is_valid_hdrs(Hdrs) of
+                true ->
+                    case have_route(via_transport_to_atom(Transport),
+                                    Host, Port) of
+                        true ->
+                            Response;
+                        _ ->
+                            error
+                    end;
+                false ->
+                    error
+            end;
+        _ ->
+            error
+    end.
 
-is_valid_hdrs(Hdrs, _Type) ->
+is_valid_hdrs(Hdrs) ->
     try
         From = esip:get_hdr(from, Hdrs),
         To = esip:get_hdr(to, Hdrs),
