@@ -114,15 +114,30 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 transport_recv(SIPSock, Data) ->
     case catch esip_codec:decode(Data) of
-        {ok, Msg} ->
-            case catch esip_transport:recv(SIPSock, Msg) of
-                {'EXIT', Reason} ->
-                    ?ERROR_MSG("transport layer failed:~n"
-                               "** Packet: ~p~n** Reason: ~p",
-                               [Msg, Reason]);
+        {ok, #sip{hdrs = Hdrs, body = Body} = Msg} ->
+            case esip:get_hdr('content-length', Hdrs) of
+                N when is_integer(N), N >= 0 ->
+                    case Body of
+                        <<_:N/binary>> ->
+                            do_transport_recv(SIPSock, Msg);
+                        <<Body1:N/binary, _/binary>> ->
+                            do_transport_recv(SIPSock, Msg#sip{body = Body1});
+                        _ ->
+                            ok
+                    end;
                 _ ->
-                    ok
+                    do_transport_recv(SIPSock, Msg)
             end;
 	Err ->
 	    Err
+    end.
+
+do_transport_recv(SIPSock, Msg) ->
+    case catch esip_transport:recv(SIPSock, Msg) of
+        {'EXIT', Reason} ->
+            ?ERROR_MSG("transport layer failed:~n"
+                       "** Packet: ~p~n** Reason: ~p",
+                       [Msg, Reason]);
+        _ ->
+            ok
     end.
