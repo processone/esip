@@ -258,6 +258,9 @@ make_response(#sip{hdrs = ReqHdrs,
     NeedHdrs = if Status == 100 ->
                        filter_hdrs([via, from, 'call-id', cseq,
                                     'max-forwards', to, timestamp], ReqHdrs);
+                  Status > 100, Status < 300 ->
+                       filter_hdrs([via, 'record-route', from, 'call-id',
+                                    cseq, 'max-forwards', to], ReqHdrs);
                   true ->
                        filter_hdrs([via, from, 'call-id', cseq,
                                     'max-forwards', to], ReqHdrs)
