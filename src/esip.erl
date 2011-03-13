@@ -43,8 +43,8 @@
 %%====================================================================
 behaviour_info(callbacks) ->
     [{transaction_user, 2},
-     {request, 1},
-     {response, 1},
+     {request, 2},
+     {response, 2},
      {message_in, 4},
      {message_out, 4},
      {data_in, 4},
