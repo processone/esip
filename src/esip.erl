@@ -18,13 +18,14 @@
 	 encode_uri/1, encode_uri_field/1, match/2, rm_hdr/2,
          add_hdr/3, set_hdr/3, get_hdr/2, get_hdr/3, get_hdrs/2,
          split_hdrs/2, get_param/2, get_param/3, has_param/2, set_param/3,
-         get_branch/1, make_response/2, make_response/3,
+         get_branch/1, make_response/2, make_response/3, is_my_via/1,
          get_config_value/1, set_config_value/2, get_config/0,
          timer1/0, timer2/0, timer4/0, reason/1, filter_hdrs/2,
          open_dialog/4, close_dialog/1, make_cseq/0, error_status/1,
          dialog_request/3, make_hdrs/0, mod/0, callback/1, callback/2,
          callback/3, send/1, dialog_send/2, ack/1, make_contact/1,
-         get_node_by_tag/1, warning/1, make_contact/0, make_contact/2]).
+         get_node_by_tag/1, warning/1, make_contact/0, make_contact/2,
+         make_auth/6, check_auth/4, make_hexstr/1, hex_encode/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -41,7 +42,7 @@
 %% API
 %%====================================================================
 behaviour_info(callbacks) ->
-    [{transaction_user, 1},
+    [{transaction_user, 2},
      {request, 1},
      {response, 1},
      {message_in, 4},
@@ -53,6 +54,7 @@ start_link(Opts) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
 
 start(Module, Opts) ->
+    crypto:start(),
     ChildSpec = {?MODULE,
 		 {?MODULE, start_link, [[{module, Module}|Opts]]},
 		 transient, 2000, worker,
@@ -82,8 +84,12 @@ dialog_request(DialogID, Req, TU) ->
 cancel(RequestOrTrID, TU) ->
     esip_transaction:cancel(RequestOrTrID, TU).
 
-send(Msg) ->
-    esip_transport:send(Msg).
+send(#sip{type = request, hdrs = Hdrs} = Req) ->
+    {_, #uri{host = VHost}, _} = esip:get_hdr('from', Hdrs),
+    NewHdrs = [esip_transport:make_via_hdr(VHost)|Hdrs],
+    esip_transport:send(Req#sip{hdrs = NewHdrs});
+send(Resp) ->
+    esip_transport:send(Resp).
 
 dialog_send(DialogID = #dialog_id{}, #sip{type = request} = Req) ->
     NewReq = esip_dialog:prepare_request(DialogID, Req),
@@ -204,11 +210,22 @@ filter_hdrs(HdrList, Hdrs) ->
               lists:member(Hdr, HdrList)
       end, Hdrs).
 
-split_hdrs(HdrList, Hdrs) ->
+split_hdrs(HdrList, Hdrs) when is_list(HdrList) ->
     lists:partition(
       fun({Hdr, _}) ->
               lists:member(Hdr, HdrList)
-      end, Hdrs).
+      end, Hdrs);
+split_hdrs(Hdr, Hdrs) ->
+    lists:foldr(
+      fun({K, V}, {H, T}) when K == Hdr ->
+              if is_list(V) ->
+                      {V++H, T};
+                 true ->
+                      {[V|H], T}
+              end;
+         ({K, V}, {H, T}) ->
+              {H, [{K, V}|T]}
+      end, {[], []}, Hdrs).
 
 get_param(Param, Params) ->
     get_param(Param, Params, <<>>).
@@ -235,6 +252,10 @@ set_param(Param, Val, Params) ->
 get_branch(Hdrs) ->
     [Via|_] = get_hdr(via, Hdrs),
     get_param(<<"branch">>, Via#via.params).
+
+is_my_via(#via{transport = Transport, host = Host, port = Port}) ->
+    esip_transport:have_route(
+      esip_transport:via_transport_to_atom(Transport), Host, Port).
 
 make_contact() ->
     esip_transport:make_contact().
@@ -284,6 +305,87 @@ make_response(#sip{hdrs = ReqHdrs,
                         Method
                 end,
     Resp#sip{method = NewMethod, hdrs = NewNeedHdrs ++ RespHdrs}.
+
+make_auth({Type, Params}, Method, Body, OrigURI, Username, Password) ->
+    Nonce = esip:get_param(<<"nonce">>, Params),
+    QOPs = esip:get_param(<<"qop">>, Params),
+    Algo = case esip:get_param(<<"algorithm">>, Params) of
+               <<>> ->
+                   <<"MD5">>;
+               Algo1 ->
+                   Algo1
+           end,
+    Realm = esip:get_param(<<"realm">>, Params),
+    OpaqueParam = case esip:get_param(<<"opaque">>, Params) of
+                      <<>> ->
+                          [];
+                      Opaque ->
+                          [{<<"opaque">>, Opaque}]
+                  end,
+    CNonce = make_hexstr(20),
+    NC = <<"00000001">>, %% TODO
+    URI = if is_binary(OrigURI) ->
+                  OrigURI;
+             is_record(OrigURI, uri) ->
+                  iolist_to_binary(esip_codec:encode_uri(OrigURI))
+          end,
+    QOPList = esip_codec:split(unquote(QOPs), $,),
+    QOP = case lists:member(<<"auth">>, QOPList) of
+              true ->
+                  <<"auth">>;
+              false ->
+                  case lists:member(<<"auth-int">>, QOPList) of
+                      true ->
+                          <<"auth-int">>;
+                      false ->
+                          <<>>
+                  end
+          end,
+    Response = compute_digest(Nonce, CNonce, NC, QOP, Algo,
+                              Realm, URI, Method, Body,
+                              Username, Password),
+    {Type, [{<<"username">>, quote(Username)},
+            {<<"realm">>, Realm},
+            {<<"nonce">>, Nonce},
+            {<<"uri">>, quote(URI)},
+            {<<"response">>, quote(Response)},
+            {<<"algorithm">>, Algo} |
+            if QOP /= <<>> ->
+                    [{<<"cnonce">>, quote(CNonce)},
+                     {<<"nc">>, NC},
+                     {<<"qop">>, QOP}];
+               true ->
+                    []
+            end] ++ OpaqueParam}.
+
+check_auth({Type, Params}, Method, Body, Password) ->
+    case Type of
+        <<"Digest">> ->
+            NewMethod = case Method of
+                            <<"ACK">> -> <<"INVITE">>;
+                            _ -> Method
+                        end,
+            Nonce = esip:get_param(<<"nonce">>, Params),
+            NC = esip:get_param(<<"nc">>, Params),
+            CNonce = esip:get_param(<<"cnonce">>, Params),
+            QOP = esip:get_param(<<"qop">>, Params),
+            Algo = esip:get_param(<<"algorithm">>, Params),
+            Username = esip:get_param(<<"username">>, Params),
+            Realm = esip:get_param(<<"realm">>, Params),
+            URI = esip:get_param(<<"uri">>, Params),
+            Response = unquote(esip:get_param(<<"response">>, Params)),
+            Response == compute_digest(Nonce, CNonce, NC, QOP,
+                                       Algo, Realm, URI, NewMethod, Body,
+                                       Username, Password);
+        _ ->
+            false
+    end.
+
+make_hexstr(N) ->
+    hex_encode(crypto:rand_bytes(N)).
+
+hex_encode(Data) ->
+    << <<(to_hex(X))/binary>> || <<X>> <= Data >>.
 
 get_config() ->
     ets:tab2list(esip_config).
@@ -344,12 +446,17 @@ error_status(timeout) ->
     {408, reason(408)};
 error_status(no_contact_header) ->
     {400, <<"Missed Contact header">>};
-error_status(nxdomain) ->
-    {503, reason(503)};
 error_status(internal_server_error) ->
     {500, reason(500)};
-error_status(_) ->
-    {500, reason(500)}.
+error_status(Err) ->
+    case inet:format_error(Err) of
+        "unknown POSIX error" ->
+            {500, reason(500)};
+        [H|T] when H >= $a, H =< $z ->
+            {503, list_to_binary([H - $ |T])};
+        Txt ->
+            {503, Txt}
+    end.
 
 get_node_by_tag(Tag) ->
     case binary:split(Tag, <<"-">>) of
@@ -582,4 +689,61 @@ process_route({route, VirtualHost, Transport, ROpts}) ->
             ok;
        true ->
             error
+    end.
+
+unquote(<<$", Rest/binary>>) ->
+    case size(Rest) - 1 of
+        Size when Size > 0 ->
+            <<Result:Size/binary, _>> = Rest,
+            Result;
+        _ ->
+            <<>>
+    end;
+unquote(Val) ->
+    Val.
+
+quote(Val) ->
+    <<$", Val/binary, $">>.
+
+to_hex(X) ->
+    Hi = case X div 16 of
+             N1 when N1 < 10 -> $0 + N1;
+             N1 -> $W + N1
+         end,
+    Lo = case X rem 16 of
+             N2 when N2 < 10 -> $0 + N2;
+             N2 -> $W + N2
+         end,
+    <<Hi, Lo>>.
+
+md5_digest(Data) ->
+    hex_encode(erlang:md5(Data)).
+
+compute_digest(Nonce, CNonce, NC, QOP, Algo, Realm,
+               URI, Method, Body, Username, Password) ->
+    A1 = if Algo == <<"MD5">>; Algo == <<>> ->
+                 [unquote(Username), $:, unquote(Realm), $:, Password];
+            true ->
+                 [md5_digest([unquote(Username), $:,
+                              unquote(Realm), $:, Password]),
+                  $:, unquote(Nonce), $:, unquote(CNonce)]
+         end,
+    A2 = if QOP == <<"auth">>; QOP == <<>> ->
+                 [Method, $:, unquote(URI)];
+            true ->
+                 [Method, $:, unquote(URI), $:, md5_digest(Body)]
+         end,
+    if QOP == <<"auth">>; QOP == <<"auth-int">> ->
+            md5_digest(
+              [md5_digest(A1),
+               $:, unquote(Nonce),
+               $:, NC,
+               $:, unquote(CNonce),
+               $:, unquote(QOP),
+               $:, md5_digest(A2)]);
+       true ->
+            md5_digest(
+              [md5_digest(A1),
+               $:, unquote(Nonce),
+               $:, md5_digest(A2)])
     end.
