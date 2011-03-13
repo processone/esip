@@ -558,14 +558,7 @@ resolve(#uri{scheme = Scheme} = URI, VHost) ->
             {error, unsupported_uri_scheme}
     end;
 resolve(#via{transport = ViaTransport} = Via, VHost) ->
-    Transport = case ViaTransport of
-                    <<"TLS">> -> tls;
-                    <<"TLS-SCTP">> -> tls_sctp;
-                    <<"TCP">> -> tcp;
-                    <<"UDP">> -> udp;
-                    <<"SCTP">> -> sctp;
-                    _ -> unknown
-                end,
+    Transport = via_transport_to_atom(ViaTransport),
     case lists:member(Transport, supported_transports(VHost)) of
         true ->
             do_resolve(Via, Transport);
