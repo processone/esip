@@ -88,10 +88,9 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({tcp, Sock, Data},
-            #state{type = Type, addr = Addr, peer = Peer} = State) ->
+handle_info({tcp, Sock, Data}, State) ->
     inet:setopts(Sock, [{active, once}]),
-    esip:callback(data_in, [Type, Peer, Addr, Data]),
+    esip:callback(data_in, [Data, make_sip_socket(State)]),
     process_data(State, Data);
 handle_info({tcp_closed, _Sock}, State) ->
     {stop, normal, State};
@@ -133,12 +132,7 @@ make_sip_socket(#state{type = Type, addr = MyAddr, peer = Peer, sock = Sock}) ->
 
 process_data(#state{buf = Buf, max_size = MaxSize,
                     msg = undefined} = State, Data) ->
-    NewBuf = case Buf of
-                 <<>> ->
-                     esip_codec:strip_wsp(Data, left);
-                 _ ->
-                     <<Buf/binary, Data/binary>>
-             end,
+    NewBuf = process_crlf(<<Buf/binary, Data/binary>>, State),
     case catch esip_codec:decode(NewBuf, stream) of
         {ok, Msg, Tail} ->
             case esip:get_hdr('content-length', Msg#sip.hdrs) of
@@ -178,3 +172,11 @@ transport_recv(State, Msg) ->
         _ ->
             ok
     end.
+
+process_crlf(<<"\r\n\r\n", Data/binary>>, State) ->
+    DataOut = <<"\r\n">>,
+    esip:callback(data_out, [DataOut, make_sip_socket(State)]),
+    gen_tcp:send(State#state.sock, DataOut),
+    process_crlf(Data, State);
+process_crlf(Data, _State) ->
+    Data.

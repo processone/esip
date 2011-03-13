@@ -37,11 +37,8 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-recv(#sip_socket{peer = PeerAddr,
-                 type = Transport,
-                 addr = MyAddr} = SIPSock, #sip{type = OrigType} = Msg) ->
-    NewMsg = case esip:callback(message_in,
-                                [Msg, Transport, PeerAddr, MyAddr]) of
+recv(SIPSock, #sip{type = OrigType} = Msg) ->
+    NewMsg = case esip:callback(message_in, [Msg, SIPSock]) of
                  drop -> ok;
                  Msg1 = #sip{} -> Msg1;
                  _ -> Msg
@@ -70,11 +67,8 @@ recv(#sip_socket{peer = PeerAddr,
 send(Msg) ->
     send(Msg, []).
 
-send(#sip_socket{peer = PeerAddr,
-                 type = Transport,
-                 addr = MyAddr} = SIPSock, Msg) ->
-    NewMsg = case esip:callback(message_out,
-                                [Msg, Transport, PeerAddr, MyAddr]) of
+send(#sip_socket{type = Transport} = SIPSock, Msg) ->
+    NewMsg = case esip:callback(message_out, [Msg, SIPSock]) of
                  drop -> ok;
                  Msg1 = #sip{} -> Msg1;
                  _ -> Msg
@@ -508,14 +502,14 @@ has_to({_, #uri{}, _}) -> true;
 has_to(_) -> false.
 
 do_send(#sip_socket{type = Type, sock = Sock,
-                    peer = Peer, addr = Addr}, Msg) ->
+                    peer = Peer} = SIPSock, Msg) ->
     case catch esip_codec:encode(Msg) of
         {'EXIT', _} = Err ->
             ?ERROR_MSG("failed to encode:~n"
 		       "** Packet: ~p~n** Reason: ~p",
 		       [Msg, Err]);
         Data ->
-            esip:callback(data_out, [Type, Addr, Peer, Data]),
+            esip:callback(data_out, [Data, SIPSock]),
             case Type of
                 udp -> esip_udp:send(Sock, Peer, Data);
                 tcp -> esip_tcp:send(Sock, Data);

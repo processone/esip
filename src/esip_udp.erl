@@ -79,7 +79,7 @@ handle_info({udp, S, IP, Port, Data}, #state{sock = S} = State) ->
     MyAddr = {State#state.ip, State#state.port},
     SIPSock = #sip_socket{type = udp, sock = S,
                           addr = MyAddr, peer = {IP, Port}},
-    esip:callback(data_in, [udp, {IP, Port}, MyAddr, Data]),
+    esip:callback(data_in, [Data, SIPSock]),
     transport_recv(SIPSock, Data),
     inet:setopts(S, [{active, once}]),
     {noreply, State};
