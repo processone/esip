@@ -33,13 +33,16 @@
 %%====================================================================
 %% API
 %%====================================================================
-start_link(SIPSocket, Request) ->
-    gen_fsm:start_link(?MODULE, [SIPSocket, Request], []).
+start_link(SIPSocket, Branch) ->
+    gen_fsm:start_link(?MODULE, [SIPSocket, Branch], []).
 
 start(SIPSocket, Request) ->
+    Branch = esip:get_branch(Request#sip.hdrs),
     case supervisor:start_child(esip_server_transaction_sup,
-                                [SIPSocket, Request]) of
+                                [SIPSocket, Branch]) of
         {ok, Pid} ->
+            esip_transaction:insert(Branch, Request#sip.method, server, Pid),
+            gen_fsm:send_event(Pid, Request),
             {ok, #trid{owner = Pid, type = server}};
         Err ->
             Err
@@ -54,12 +57,9 @@ stop(Pid) ->
 %%====================================================================
 %% gen_fsm callbacks
 %%====================================================================
-init([SIPSock, Request]) ->
-    Branch = esip:get_branch(Request#sip.hdrs),
+init([SIPSock, Branch]) ->
     TrID = #trid{owner = self(), type = server},
     State = #state{sock = SIPSock, branch = Branch, trid = TrID},
-    gen_fsm:send_event(self(), Request),
-    esip_transaction:insert(Branch, Request#sip.method, server, self()),
     erlang:send_after(?MAX_TRANSACTION_LIFETIME, self(), stop),
     {ok, trying, State}.
 
@@ -69,7 +69,7 @@ trying(#sip{method = <<"CANCEL">>, type = request} = Req, State) ->
                               esip:make_tag()),
     proceeding(Resp, State#state{req = Req});
 trying(#sip{type = request, method = Method} = Req, State) ->
-    {TU, ErrorStatus} = find_transaction_user(Req),
+    {TU, ErrorStatus} = find_transaction_user(Req, State#state.sock),
     case is_transaction_user(TU) of
         true ->
             NewState = State#state{tu = TU, req = Req},
@@ -243,7 +243,7 @@ pass_to_transaction_user(#state{trid = TrID, tu = TU}, Req) ->
             Resp
     end.
 
-find_transaction_user(Req) ->
+find_transaction_user(Req, SIPSock) ->
     case esip_dialog:id(uas, Req) of
         #dialog_id{local_tag = Tag} when Tag /= <<>> ->
             case esip_dialog:lookup(esip_dialog:id(uas, Req)) of
@@ -255,8 +255,8 @@ find_transaction_user(Req) ->
                             {TU, 500}
                     end;
                 _ ->
-                    {esip:callback(transaction_user, [Req]), 500}
+                    {esip:callback(transaction_user, [Req, SIPSock]), 500}
             end;
         _ ->
-            {esip:callback(transaction_user, [Req]), 500}
+            {esip:callback(transaction_user, [Req, SIPSock]), 500}
     end.
