@@ -437,6 +437,56 @@ decode_hdr(<<"min-se">>, Val) ->
     {'min-se', {N, Params}};
 decode_hdr(<<"organization">>, Val) ->
     {organization, Val};
+decode_hdr(<<"p-access-network-info">>, Val) ->
+    {'p-access-network-info', decode_type_params(Val)};
+decode_hdr(<<"p-answer-state">>, Val) ->
+    {'p-answer-state', decode_type_params(Val)};
+decode_hdr(<<"p-asserted-identity">>, Val) ->
+    {'p-asserted-identity', [_|_] = decode_uri_field(Val)};
+decode_hdr(<<"p-asserted-service">>, Val) ->
+    {'p-asserted-service', split(Val, $,)};
+decode_hdr(<<"p-associated-uri">>, Val) ->
+    {'p-associated-uri', [_|_] = decode_uri_field(Val)};
+decode_hdr(<<"p-called-party-id">>, Val) ->
+    [URI|_] = decode_uri_field(Val),
+    {'p-called-party-id', URI};
+decode_hdr(<<"p-charging-function-addresses">>, Val) ->
+    {'p-charging-function-addresses', decode_params(Val)};
+decode_hdr(<<"p-charging-vector">>, Val) ->
+    {'p-charging-vector', decode_params(Val)};
+decode_hdr(<<"p-dcs-billing-info">>, Val) ->
+    {'p-dcs-billing-info', decode_type_params(Val)};
+decode_hdr(<<"p-dcs-laes">>, Val) ->
+    {'p-dcs-laes', decode_type_params(Val)};
+decode_hdr(<<"p-dcs-osps">>, Val) ->
+    {'p-dcs-osps', Val};
+decode_hdr(<<"p-dcs-redirect">>, Val) ->
+    [URI|_] = decode_uri_field(Val),
+    {'p-dcs-redirect', URI};
+decode_hdr(<<"p-dcs-trace-party-id">>, Val) ->
+    [URI|_] = decode_uri_field(Val),
+    {'p-dcs-trace-party-id', URI};
+decode_hdr(<<"p-early-media">>, Val) ->
+    {'p-early-media', split(Val, $,)};
+decode_hdr(<<"p-media-authorization">>, Val) ->
+    {'p-media-authorization', split(Val, $,)};
+decode_hdr(<<"p-preferred-identity">>, Val) ->
+    {'p-preferred-identity', [_|_] = decode_uri_field(Val)};
+decode_hdr(<<"p-preferred-service">>, Val) ->
+    {'p-preferred-service', split(Val, $,)};
+decode_hdr(<<"p-profile-key">>, Val) ->
+    [URI|_] = decode_uri_field(Val),
+    {'p-profile-key', URI};
+decode_hdr(<<"p-refused-uri-list">>, Val) ->
+    {'p-refused-uri-list', [_|_] = decode_uri_field(Val)};
+decode_hdr(<<"p-served-user">>, Val) ->
+    [URI|_] = decode_uri_field(Val),
+    {'p-served-user', URI};
+decode_hdr(<<"p-user-database">>, Val) ->
+    %% TODO
+    {'p-user-database', Val};
+decode_hdr(<<"p-visited-network-id">>, Val) ->
+    {'p-visited-network-id', split(Val, $,)};
 decode_hdr(<<"path">>, Val) ->
     {path, [_|_] = decode_uri_field(Val)};
 decode_hdr(<<"permission-missing">>, Val) ->
@@ -487,6 +537,8 @@ decode_hdr(<<"request-disposition">>, Val) ->
     {'request-disposition', split(Val, $,)};
 decode_hdr(<<"require">>, Val) ->
     {require, split(Val, $,)};
+decode_hdr(<<"resource-priority">>, Val) ->
+    {'resource-priority', split(Val, $,)};
 decode_hdr('Retry-After', Val) ->
     {Delta, Params} = decode_type_params(Val),
     {ok, N} = to_integer(Delta, 0, unlimited),
@@ -728,6 +780,8 @@ encode_hdr('request-disposition', Val, _) ->
     [<<"Request-Disposition: ">>, join(Val, ", ")];
 encode_hdr(require, Val, _) ->
     [<<"Require: ">>, join(Val, ", ")];
+encode_hdr('resource-priority', Val, _) ->
+    [<<"Resource-Priority: ">>, join(Val, ", ")];
 encode_hdr('retry-after', {Delta, Params}, _) ->
     [<<"Retry-After: ">>, encode_type_params({integer_to_list(Delta), Params})];
 encode_hdr(route, Val, _) ->
@@ -772,7 +826,7 @@ encode_hdr(unsupported, Val, _) ->
 encode_hdr('user-agent', Val, _) ->
     [<<"User-Agent: ">>, Val];
 encode_hdr(via, Val, _) ->
-    [[<<"Via: ">>, encode_via(V)] || V <- Val];
+    join([[<<"Via: ">>, encode_via(V)] || V <- Val], "\r\n");
 encode_hdr(warning, Val, _) ->
     L = [[integer_to_list(C), $ , A, $ , T] || {C, A, T} <- Val],
     [<<"Warning: ">>, join(L, ", ")];
@@ -1036,15 +1090,15 @@ msg() ->
       "Min-Expires: 60\r\n"
       "Min-SE: 3600;lr=true\r\n"
       "Organization: Boxes by Bob\r\n"
-      %% TODO
       %% "P-Access-Network-Info: blah\r\n"
       %% "P-Answer-State: blah\r\n"
-      %% "P-Asserted-Identity: blah\r\n"
+      "P-Asserted-Identity: \"Cullen Jennings\" <sip:fluffy@cisco.com>\r\n"
       %% "P-Asserted-Service: blah\r\n"
       %% "P-Associated-URI: blah\r\n"
-      %% "P-Called-Party-ID: blah\r\n"
-      %% "P-Charging-Function-Addresses: blah\r\n"
-      %% "P-Charging-Vector: blah\r\n"
+      "P-Called-Party-ID: sip:user1-business@example.com\r\n"
+      "P-Charging-Function-Addresses: ccf=192.1.1.1; ccf=192.1.1.2\r\n"
+      "P-Charging-Vector: icid-value=1234bc9876e;\r\n"
+      " icid-generated-at=192.0.6.8; orig-ioi=home1.net\r\n"
       %% "P-DCS-Trace-Party-ID: blah\r\n"
       %% "P-DCS-OSPS: blah\r\n"
       %% "P-DCS-Billing-Info: blah\r\n"
@@ -1052,13 +1106,13 @@ msg() ->
       %% "P-DCS-Redirect: blah\r\n"
       %% "P-Early-Media: blah\r\n"
       %% "P-Media-Authorization: blah\r\n"
-      %% "P-Preferred-Identity: blah\r\n"
+      "P-Preferred-Identity: \"Cullen Jennings\" <sip:fluffy@cisco.com>\r\n"
       %% "P-Preferred-Service: blah\r\n"
-      %% "P-Profile-Key: blah\r\n"
+      "P-Profile-Key: <sip:chatroom-!.*!@example.com>\r\n"
       %% "P-Refused-URI-List: blah\r\n"
       %% "P-Served-User: blah\r\n"
-      %% "P-User-Database: blah\r\n"
-      %% "P-Visited-Network-ID: blah\r\n"
+      "P-User-Database: <aaa://host.example.com;transport=tcp>\r\n"
+      "P-Visited-Network-ID: other.net, \"Visited network number 1\"\r\n"
       "Path: <sip:P3.EXAMPLEHOME.COM;lr>,<sip:P1.EXAMPLEVISITED.COM;lr>\r\n"
       "Permission-Missing: sip:C@example.com\r\n"
       "Priority: emergency\r\n"
