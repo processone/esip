@@ -448,7 +448,8 @@ prepare_request(#sip_socket{peer = {Addr, Port}, type = SockType},
                     NewVias = [{via, [Via#via{params = Params2}|RestVias]}|Vias],
                     NewRestHdrs = case esip:get_hdr('max-forwards', RestHdrs) of
                                       undefined ->
-                                          [{'max-forwards', 70}|RestHdrs];
+                                          MF = esip:get_config_value(max_forwards),
+                                          [{'max-forwards', MF}|RestHdrs];
                                       _ ->
                                           RestHdrs
                                   end,
