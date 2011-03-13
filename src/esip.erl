@@ -48,6 +48,7 @@
          is_my_via/1,
          make_auth/6,
          make_branch/0,
+         make_branch/1,
          make_callid/0,
          make_contact/0,
          make_contact/1,
@@ -158,7 +159,8 @@ send(ReqOrResp) ->
 
 send(#sip{type = request, hdrs = Hdrs} = Req, Opts) ->
     {_, #uri{host = VHost}, _} = esip:get_hdr('from', Hdrs),
-    NewHdrs = [esip_transport:make_via_hdr(VHost)|Hdrs],
+    Branch = esip:make_branch(Hdrs),
+    NewHdrs = [esip_transport:make_via_hdr(VHost, Branch)|Hdrs],
     esip_transport:send(Req#sip{hdrs = NewHdrs}, Opts);
 send(Resp, Opts) ->
     esip_transport:send(Resp, Opts).
@@ -185,6 +187,17 @@ make_tag() ->
 make_branch() ->
     N = gen_server:call(?MODULE, make_branch),
     iolist_to_binary(["z9hG4bK-", int_to_list(N)]).
+
+make_branch(Hdrs) ->
+    case esip:get_hdrs('via', Hdrs) of
+        [] ->
+            make_branch();
+        [Via|_] ->
+            TopBranch = get_param(<<"branch">>, Via#via.params),
+            Cookie = atom_to_list(erlang:get_cookie()),
+            ID = hex_encode(erlang:md5([TopBranch, Cookie])),
+            iolist_to_binary(["z9hG4bK-", ID])
+    end.
 
 make_callid() ->
     N = gen_server:call(?MODULE, make_callid),

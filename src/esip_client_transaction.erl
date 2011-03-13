@@ -251,7 +251,7 @@ connect(#state{sock = undefined}, #sip{uri = URI, hdrs = Hdrs} = Req) ->
             end,
     case esip_transport:connect(NewURI, VHost) of
         {ok, SIPSocket} ->
-            Branch = esip:make_branch(),
+            Branch = esip:make_branch(Hdrs),
             NewHdrs = [esip_transport:make_via_hdr(VHost, Branch)|Hdrs],
             {ok, SIPSocket, Req#sip{hdrs = NewHdrs}, Branch};
         Err ->
@@ -268,6 +268,6 @@ connect(#state{sock = SIPSocket}, #sip{hdrs = Hdrs} = Req) ->
                 _ ->
                     undefined
             end,
-    Branch = esip:make_branch(),
+    Branch = esip:make_branch(Hdrs),
     NewHdrs = [esip_transport:make_via_hdr(VHost, Branch)|Hdrs],
     {ok, SIPSocket, Req#sip{hdrs = NewHdrs}, Branch}.
