@@ -140,8 +140,8 @@ connect(URIorVia, VHost) ->
                                               [{tls, true}, {vhost, VHost}]);
                         udp ->
                             case get_udp_listener() of
-                                {ok, Pid} ->
-                                    esip_udp:connect(AddrsPorts, Pid);
+                                {ok, UDPSock} ->
+                                    esip_udp:connect(AddrsPorts, UDPSock);
                                 _ ->
                                     {error, eprotonosupport}
                             end
@@ -188,16 +188,16 @@ lookup_socket(Addr, Transport) ->
             error
     end.
 
-register_udp_listener(Pid) ->
-    ets:insert(esip_socket, {udp, Pid}).
+register_udp_listener(SIPSock) ->
+    ets:insert(esip_socket, {udp, SIPSock}).
 
-unregister_udp_listener(Pid) ->
-    ets:delete_object(esip_socket, {udp, Pid}).
+unregister_udp_listener(SIPSock) ->
+    ets:delete_object(esip_socket, {udp, SIPSock}).
 
 get_udp_listener() ->
     case ets:lookup(esip_socket, udp) of
-        [{_, Pid}|_] ->
-            {ok, Pid};
+        [{_, SIPSock}|_] ->
+            {ok, SIPSock};
         _ ->
             error
     end.

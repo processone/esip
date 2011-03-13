@@ -44,21 +44,8 @@ stop() ->
 send(Sock, {Addr, Port}, Data) ->
     gen_udp:send(Sock, Addr, Port, Data).
 
-connect([AddrPort|_Addrs], Pid) ->
-    case catch gen_server:call(Pid, get_socket) of
-        {ok, Sock} ->
-            {ok, Sock#sip_socket{peer = AddrPort}};
-        {'EXIT', Reason} = Err ->
-            ?ERROR_MSG("failed to get UDP socket: ~p", [Err]),
-            case Reason of
-                {timeout, _} ->
-                    {error, timeout};
-                _ ->
-                    {error, internal_server_error}
-            end;
-        Res ->
-            Res
-    end.
+connect([AddrPort|_Addrs], Sock) ->
+    {ok, Sock#sip_socket{peer = AddrPort}}.
 
 %%====================================================================
 %% gen_server callbacks
@@ -69,8 +56,10 @@ init([Port, Opts]) ->
 	{ok, S} ->
             case inet:sockname(S) of
                 {ok, {IP, _}} ->
-                    esip_transport:register_udp_listener(self()),
-                    {ok, #state{sock = S, ip = IP, port = Port}};
+                    State = #state{sock = S, ip = IP, port = Port},
+                    esip_transport:register_udp_listener(
+                      make_socket(State)),
+                    {ok, State};
                 {error, Reason} ->
                     {stop, Reason}
             end;
@@ -78,10 +67,6 @@ init([Port, Opts]) ->
             {stop, Reason}
     end.
 
-handle_call(get_socket, _From, State) ->
-    SIPSock = #sip_socket{type = udp, sock = State#state.sock,
-                          addr = {State#state.ip, State#state.port}},
-    {reply, {ok, SIPSock}, State};
 handle_call(stop, _From, State) ->
     {stop, normal, State};
 handle_call(_Request, _From, State) ->
@@ -101,9 +86,10 @@ handle_info({udp, S, IP, Port, Data}, #state{sock = S} = State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, #state{sock = S}) ->
+terminate(_Reason, #state{sock = S} = State) ->
     catch gen_udp:close(S),
-    esip_transport:unregister_udp_listener(self()),
+    esip_transport:unregister_udp_listener(
+      make_socket(State)),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -141,3 +127,6 @@ do_transport_recv(SIPSock, Msg) ->
         _ ->
             ok
     end.
+
+make_socket(#state{sock = S, ip = IP, port = Port}) ->
+    #sip_socket{type = udp, sock = S, addr = {IP, Port}}.
