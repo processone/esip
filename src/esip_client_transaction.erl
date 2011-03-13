@@ -11,7 +11,7 @@
 -behaviour(gen_fsm).
 
 %% API
--export([start_link/3, start/2, start/3, stop/1, route/2, cancel/2]).
+-export([start_link/2, start/2, start/3, stop/1, route/2, cancel/2]).
 
 %% gen_fsm callbacks
 -export([init/1, handle_event/3, handle_sync_event/4,
@@ -31,16 +31,17 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-start_link(Request, TU, SIPSocket) ->
-    gen_fsm:start_link(?MODULE, [Request, TU, SIPSocket], []).
+start_link(TU, SIPSocket) ->
+    gen_fsm:start_link(?MODULE, [TU, SIPSocket], []).
 
 start(Request, TU) ->
     start(Request, TU, undefined).
 
 start(Request, TU, SIPSocket) ->
     case supervisor:start_child(esip_client_transaction_sup,
-                                [Request, TU, SIPSocket]) of
+                                [TU, SIPSocket]) of
         {ok, Pid} ->
+            gen_fsm:send_event(Pid, Request),
             {ok, #trid{owner = Pid, type = client}};
         Err ->
             Err
@@ -58,9 +59,8 @@ stop(Pid) ->
 %%%===================================================================
 %%% gen_fsm callbacks
 %%%===================================================================
-init([Request, TU, SIPSocket]) ->
+init([TU, SIPSocket]) ->
     TrID = #trid{owner = self(), type = client},
-    gen_fsm:send_event(self(), Request),
     {ok, trying, #state{tu = TU, trid = TrID, sock = SIPSocket}}.
 
 trying(#sip{type = request, method = Method} = Request, State) ->
@@ -215,13 +215,14 @@ pass_to_transaction_user(#state{trid = TrID, tu = TU, req = Req}, Resp) ->
 
 send_ack(#state{req = #sip{uri = URI, hdrs = Hdrs,
                            method = <<"INVITE">>}} = State, Resp) ->
-    {Hdrs1, _} = esip:split_hdrs([via, 'call-id', from, cseq,
+    {Hdrs1, _} = esip:split_hdrs(['call-id', from, cseq,
                                   route, 'max-forwards'], Hdrs),
     To = esip:get_hdr(to, Resp#sip.hdrs),
+    [Via|_] = esip:get_hdrs(via, Hdrs),
     ACK = #sip{type = request,
                uri = URI,
                method = <<"ACK">>,
-               hdrs = [{to, To}|Hdrs1]},
+               hdrs = [{via, [Via]},{to, To}|Hdrs1]},
     esip_transport:send(State#state.sock, ACK);
 send_ack(_, _) ->
     ok.
