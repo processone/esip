@@ -479,18 +479,13 @@ is_valid_hdrs(Hdrs) ->
             false
     end.
 
-is_valid_via(#via{transport = Transport,
-                  params = Params}, SockType) ->
-    case via_transport_to_atom(Transport) of
-        SockType ->
-            case esip:get_param(<<"branch">>, Params) of
-                <<>> ->
-                    false;
-                _ ->
-                    true
-            end;
+is_valid_via(#via{transport = _Transport,
+                  params = Params}, _SockType) ->
+    case esip:get_param(<<"branch">>, Params) of
+        <<>> ->
+            false;
         _ ->
-            false
+            true
     end.
 
 has_from({_, #uri{}, _}) -> true;
