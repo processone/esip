@@ -10,7 +10,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/3, start/3, start/2, stop/0, send/3, connect/2]).
+-export([start_link/2, start/2, send/3, connect/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -24,22 +24,11 @@
 %%====================================================================
 %% API
 %%====================================================================
-start_link(IP, Port, Opts) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [IP, Port, Opts], []).
-
-start(IP, Port, Opts) ->
-    ChildSpec =	{?MODULE,
-		 {?MODULE, start_link, [IP, Port, Opts]},
-		 transient, 2000, worker,
-		 [?MODULE]},
-    supervisor:start_child(esip_sup, ChildSpec).
+start_link(Port, Opts) ->
+    gen_server:start_link(?MODULE, [Port, Opts], []).
 
 start(Port, Opts) ->
-    gen_server:start(?MODULE, [Port, Opts], []).
-
-stop() ->
-    gen_server:call(?MODULE, stop),
-    supervisor:delete_child(esip_sup, ?MODULE).
+    supervisor:start_child(esip_udp_sup, [Port, Opts]).
 
 send(Sock, {Addr, Port}, Data) ->
     gen_udp:send(Sock, Addr, Port, Data).
@@ -67,8 +56,6 @@ init([Port, Opts]) ->
             {stop, Reason}
     end.
 
-handle_call(stop, _From, State) ->
-    {stop, normal, State};
 handle_call(_Request, _From, State) ->
     {reply, bad_request, State}.
 

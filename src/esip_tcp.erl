@@ -11,7 +11,8 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, start/0, start/3, connect/1, connect/2, send/2]).
+-export([start_link/0, start_link/3, start/0, start/3,
+         connect/1, connect/2, send/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -29,11 +30,14 @@
 start_link() ->
     gen_server:start_link(?MODULE, [], []).
 
+start_link(Sock, Peer, MyAddr) ->
+    gen_server:start_link(?MODULE, [Sock, Peer, MyAddr], []).
+
 start() ->
-    gen_server:start(?MODULE, [], []).
+    supervisor:start_child(esip_tcp_sup, []).
 
 start(Sock, Peer, MyAddr) ->
-    gen_server:start(?MODULE, [Sock, Peer, MyAddr], []).
+    supervisor:start_child(esip_tcp_sup, [Sock, Peer, MyAddr]).
 
 connect(Addrs) ->
     connect(Addrs, []).
