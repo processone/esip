@@ -372,6 +372,8 @@ decode_hdr(<<"call-id">>, Val) ->
 decode_hdr(<<"call-info">>, Val) ->
     %%TODO
     {'call-info', Val};
+decode_hdr(<<"contact">>, <<"*">>) ->
+    {contact, <<"*">>};
 decode_hdr(<<"contact">>, Val) ->
     {contact, [_|_] = decode_uri_field(Val)};
 decode_hdr(<<"content-disposition">>, Val) ->
@@ -685,6 +687,8 @@ encode_hdr('call-id', Val, _) ->
 encode_hdr('call-info', Val, _) ->
     %%TODO
     [<<"Call-Info: ">>, Val];
+encode_hdr('contact', <<"*">>, _) ->
+    [<<"Contact: *">>];
 encode_hdr('contact', Val, _) ->
     [<<"Contact: ">>, join([encode_uri_field(U) || U <- Val], ", ")];
 encode_hdr('content-disposition', Val, _) ->

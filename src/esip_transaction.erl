@@ -11,7 +11,7 @@
 
 %% API
 -export([start_link/0, process/2, reply/2, cancel/2,
-         request/2, insert/4, delete/3]).
+         request/2, request/3, insert/4, delete/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -85,8 +85,11 @@ reply(#sip{method = Method, type = request, hdrs = Hdrs},
 reply(_, _) ->
     ok.
 
-request(#sip{type = request} = Req, TU) ->
-    esip_client_transaction:start(Req, TU).
+request(Req, TU) ->
+    request(Req, TU, []).
+
+request(#sip{type = request} = Req, TU, Opts) ->
+    esip_client_transaction:start(Req, TU, Opts).
 
 cancel(#sip{method = Method, type = request, hdrs = Hdrs}, TU) ->
     Branch = esip:get_branch(Hdrs),

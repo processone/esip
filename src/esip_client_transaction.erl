@@ -35,11 +35,11 @@ start_link(TU, SIPSocket) ->
     gen_fsm:start_link(?MODULE, [TU, SIPSocket], []).
 
 start(Request, TU) ->
-    start(Request, TU, undefined).
+    start(Request, TU, []).
 
-start(Request, TU, SIPSocket) ->
+start(Request, TU, Opts) ->
     case supervisor:start_child(esip_client_transaction_sup,
-                                [TU, SIPSocket]) of
+                                [TU, Opts]) of
         {ok, Pid} ->
             gen_fsm:send_event(Pid, Request),
             {ok, #trid{owner = Pid, type = client}};
@@ -59,8 +59,12 @@ stop(Pid) ->
 %%%===================================================================
 %%% gen_fsm callbacks
 %%%===================================================================
-init([TU, SIPSocket]) ->
+init([TU, Opts]) ->
     TrID = #trid{owner = self(), type = client},
+    SIPSocket = case lists:keysearch(socket, 1, Opts) of
+                    {value, {_, S}} -> S;
+                    _ -> undefined
+                end,
     {ok, trying, #state{tu = TU, trid = TrID, sock = SIPSocket}}.
 
 trying(#sip{type = request, method = Method} = Request, State) ->
@@ -158,7 +162,7 @@ proceeding({cancel, TU}, #state{req = #sip{hdrs = Hdrs} = Req} = State) ->
                      method = <<"CANCEL">>,
                      uri = Req#sip.uri,
                      hdrs = [{via, [Via]}|NewHdrs]},
-    esip_client_transaction:start(CancelReq, TU, State#state.sock),
+    esip_client_transaction:start(CancelReq, TU, [{socket, State#state.sock}]),
     {next_state, proceeding, State};
 proceeding(_Event, State) ->
     {next_state, proceeding, State}.
@@ -205,12 +209,15 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-pass_to_transaction_user(#state{trid = TrID, tu = TU, req = Req}, Resp) ->
+pass_to_transaction_user(#state{trid = TrID, tu = TU,
+                                req = Req, sock = Sock}, Resp) ->
     case TU of
         F when is_function(F) ->
-            F(Resp, Req, TrID);
+            F(Resp, Req, Sock, TrID);
         {M, F, A} ->
-            apply(M, F, [Resp, Req, TrID | A])
+            apply(M, F, [Resp, Req, Sock, TrID | A]);
+        _ ->
+            TU
     end.
 
 send_ack(#state{req = #sip{uri = URI, hdrs = Hdrs,

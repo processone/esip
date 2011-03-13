@@ -69,13 +69,13 @@ trying(#sip{method = <<"CANCEL">>, type = request} = Req, State) ->
                               esip:make_tag()),
     proceeding(Resp, State#state{req = Req});
 trying(#sip{type = request, method = Method} = Req, State) ->
-    {TU, ErrorStatus} = find_transaction_user(Req, State#state.sock),
+    TU = find_transaction_user(Req, State#state.sock, State#state.trid),
     case is_transaction_user(TU) of
         true ->
             NewState = State#state{tu = TU, req = Req},
             case pass_to_transaction_user(NewState, Req) of
                 #sip{type = response} = Resp ->
-                    proceeding(Resp, NewState);
+                    proceeding(Resp, NewState#state{tu = undefined});
                 wait ->
                     if Method == <<"INVITE">> ->
                             gen_fsm:send_event_after(200, trying);
@@ -85,13 +85,13 @@ trying(#sip{type = request, method = Method} = Req, State) ->
                     {next_state, proceeding, NewState};
                 _ ->
                     Resp = esip:make_response(
-                             Req, #sip{status = ErrorStatus, type = response},
+                             Req, #sip{status = 500, type = response},
                              esip:make_tag()),
-                    proceeding(Resp, NewState)
+                    proceeding(Resp, State#state{req = Req})
             end;
         false ->
             Resp = esip:make_response(
-                     Req, #sip{status = ErrorStatus, type = response},
+                     Req, #sip{status = 500, type = response},
                      esip:make_tag()),
             proceeding(Resp, State#state{req = Req})
     end;
@@ -136,7 +136,7 @@ proceeding(#sip{type = request, method = <<"CANCEL">>} = Req, State) ->
             case pass_to_transaction_user(State, Req) of
                 #sip{type = response} = Resp ->
                     proceeding(Resp#sip{method = <<"INVITE">>}, State);
-                wait ->
+                _ ->
                     {next_state, proceeding, State}
             end;
        true ->
@@ -230,33 +230,39 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%--------------------------------------------------------------------
 is_transaction_user(#sip{type = response}) ->
     true;
-is_transaction_user(TU) ->
-    is_function(TU) orelse (is_tuple(TU) andalso (tuple_size(TU) == 3)).
+is_transaction_user(TU) when is_function(TU) ->
+    true;
+is_transaction_user({M, F, A}) when is_atom(M), is_atom(F), is_list(A) ->
+    true;
+is_transaction_user(_) ->
+    false.
 
-pass_to_transaction_user(#state{trid = TrID, tu = TU}, Req) ->
+pass_to_transaction_user(#state{trid = TrID, tu = TU, sock = Sock}, Req) ->
     case TU of
         F when is_function(F) ->
-            esip:callback(F, [Req, TrID]);
+            esip:callback(F, [Req, Sock, TrID]);
         {M, F, A} ->
-            esip:callback(M, F, [Req, TrID | A]);
+            esip:callback(M, F, [Req, Sock, TrID | A]);
         #sip{type = response} = Resp ->
-            Resp
+            Resp;
+        _ ->
+            TU
     end.
 
-find_transaction_user(Req, SIPSock) ->
+find_transaction_user(Req, SIPSock, TrID) ->
     case esip_dialog:id(uas, Req) of
         #dialog_id{local_tag = Tag} when Tag /= <<>> ->
             case esip_dialog:lookup(esip_dialog:id(uas, Req)) of
                 {ok, TU, #dialog{remote_seq_num = RemoteSeqNum}} ->
                     CSeq = esip:get_hdr(cseq, Req#sip.hdrs),
                     if is_integer(RemoteSeqNum), RemoteSeqNum > CSeq ->
-                            {stop, 500};
+                            stop;
                        true ->
-                            {TU, 500}
+                            TU
                     end;
                 _ ->
-                    {esip:callback(transaction_user, [Req, SIPSock]), 500}
+                    esip:callback(request, [Req, SIPSock, TrID])
             end;
         _ ->
-            {esip:callback(transaction_user, [Req, SIPSock]), 500}
+            esip:callback(request, [Req, SIPSock, TrID])
     end.

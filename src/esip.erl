@@ -25,7 +25,9 @@
          dialog_request/3, make_hdrs/0, mod/0, callback/1, callback/2,
          callback/3, send/1, dialog_send/2, ack/1, make_contact/1,
          get_node_by_tag/1, warning/1, make_contact/0, make_contact/2,
-         make_auth/6, check_auth/4, make_hexstr/1, hex_encode/1]).
+         make_auth/6, check_auth/4, make_hexstr/1, hex_encode/1,
+         request/1, dialog_request/2, cancel/1, quote/1, unquote/1,
+         to_lower/1, send/2, request/3, dialog_request/4, ack/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -42,7 +44,7 @@
 %% API
 %%====================================================================
 behaviour_info(callbacks) ->
-    [{transaction_user, 2},
+    [{request, 3},
      {request, 2},
      {response, 2},
      {message_in, 4},
@@ -71,34 +73,58 @@ start(Module, Opts) ->
 stop() ->
     application:stop(esip).
 
+request(Request) ->
+    request(Request, undefined).
+
 request(Request, TU) ->
-    esip_transaction:request(Request, TU).
+    request(Request, TU, []).
+
+request(Request, TU, Opts) ->
+    esip_transaction:request(Request, TU, Opts).
 
 reply(RequestOrTrID, Response) ->
     esip_transaction:reply(RequestOrTrID, Response).
 
+dialog_request(DialogID, Req) ->
+    dialog_request(DialogID, Req, undefined).
+
 dialog_request(DialogID, Req, TU) ->
+    dialog_request(DialogID, Req, TU, []).
+
+dialog_request(DialogID, Req, TU, Opts) ->
     NewReq = esip_dialog:prepare_request(DialogID, Req),
-    esip_transaction:request(NewReq, TU).
+    esip_transaction:request(NewReq, TU, Opts).
+
+cancel(RequestOrTrID) ->
+    cancel(RequestOrTrID, undefined).
 
 cancel(RequestOrTrID, TU) ->
     esip_transaction:cancel(RequestOrTrID, TU).
 
-send(#sip{type = request, hdrs = Hdrs} = Req) ->
+send(ReqOrResp) ->
+    send(ReqOrResp, []).
+
+send(#sip{type = request, hdrs = Hdrs} = Req, Opts) ->
     {_, #uri{host = VHost}, _} = esip:get_hdr('from', Hdrs),
     NewHdrs = [esip_transport:make_via_hdr(VHost)|Hdrs],
-    esip_transport:send(Req#sip{hdrs = NewHdrs});
-send(Resp) ->
-    esip_transport:send(Resp).
+    esip_transport:send(Req#sip{hdrs = NewHdrs}, Opts);
+send(Resp, Opts) ->
+    esip_transport:send(Resp, Opts).
 
-dialog_send(DialogID = #dialog_id{}, #sip{type = request} = Req) ->
+dialog_send(DialogID, Req) ->
+    dialog_send(DialogID, Req, []).
+
+dialog_send(DialogID = #dialog_id{}, #sip{type = request} = Req, Opts) ->
     NewReq = esip_dialog:prepare_request(DialogID, Req),
-    esip_transport:send(NewReq).
+    esip_transport:send(NewReq, Opts).
 
-ack(DialogID = #dialog_id{}) ->
+ack(DialogID) ->
+    ack(DialogID, []).
+
+ack(DialogID = #dialog_id{}, Opts) ->
     dialog_send(DialogID, #sip{type = request,
                                method = <<"ACK">>,
-                               hdrs = esip:make_hdrs()}).
+                               hdrs = esip:make_hdrs()}, Opts).
 
 make_tag() ->
     {NodeID, N} = gen_server:call(?MODULE, make_tag),
@@ -386,6 +412,9 @@ make_hexstr(N) ->
 
 hex_encode(Data) ->
     << <<(to_hex(X))/binary>> || <<X>> <= Data >>.
+
+to_lower(Bin) ->
+    esip_codec:to_lower(Bin).
 
 get_config() ->
     ets:tab2list(esip_config).
