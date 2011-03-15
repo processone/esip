@@ -44,7 +44,7 @@ process(SIPSock, #sip{method = Method, hdrs = Hdrs, type = request} = Req) ->
             case lookup({Branch, server}) of
                 {ok, Pid} ->
                     esip_server_transaction:route(Pid, Req),
-                    esip_server_transaction:start(SIPSock, Req);
+                    start_server_transaction(SIPSock, Req);
                 error ->
                     case esip:callback(request, [Req, SIPSock]) of
                         #sip{type = response} = Resp ->
@@ -60,7 +60,7 @@ process(SIPSock, #sip{method = Method, hdrs = Hdrs, type = request} = Req) ->
                     end
             end;
         error ->
-            esip_server_transaction:start(SIPSock, Req)
+            start_server_transaction(SIPSock, Req)
     end;
 process(SIPSock, #sip{method = Method, hdrs = Hdrs, type = response} = Resp) ->
     Branch = esip:get_branch(Hdrs),
@@ -89,7 +89,7 @@ request(Req, TU) ->
     request(Req, TU, []).
 
 request(#sip{type = request} = Req, TU, Opts) ->
-    esip_client_transaction:start(Req, TU, Opts).
+    start_client_transaction(Req, TU, Opts).
 
 cancel(#sip{method = Method, type = request, hdrs = Hdrs}, TU) ->
     Branch = esip:get_branch(Hdrs),
@@ -103,9 +103,11 @@ cancel(#trid{type = client, owner = Pid}, TU) ->
     esip_client_transaction:cancel(Pid, TU).
 
 insert(Branch, Method, Type, Pid) ->
+    ets:update_counter(?MODULE, {transaction_number, Type}, 1),
     ets:insert(?MODULE, {transaction_key(Branch, Method, Type), Pid}).
 
 delete(Branch, Method, Type) ->
+    ets:update_counter(?MODULE, {transaction_number, Type}, -1),
     ets:delete(?MODULE, transaction_key(Branch, Method, Type)).
 
 %%====================================================================
@@ -113,6 +115,10 @@ delete(Branch, Method, Type) ->
 %%====================================================================
 init([]) ->
     ets:new(?MODULE, [public, named_table]),
+    ets:insert(?MODULE, {{transaction_number, client}, 0}),
+    ets:insert(?MODULE, {{transaction_number, server}, 0}),
+    ets:insert(?MODULE, {{last_error_report, client}, {0, 0, 0}}),
+    ets:insert(?MODULE, {{last_error_report, server}, {0, 0, 0}}),
     {ok, #state{}}.
 
 handle_call(_Request, _From, State) ->
@@ -152,4 +158,55 @@ pass_to_core(Core, Req) ->
             F(Req, undefined);
         {M, F, A} ->
             apply(M, F, [Req, undefined | A])
+    end.
+
+start_server_transaction(SIPSock, Req) ->
+    MaxTransactions = esip:get_config_value(max_server_transactions),
+    case ets:lookup(?MODULE, {transaction_number, server}) of
+        [{_, N}] when N >= MaxTransactions ->
+            maybe_report_error(server, N),
+            {Status, Reason} = esip:error_status({error, too_many_transactions}),
+            esip_transport:send(SIPSock,
+                                esip:make_response(
+                                  Req, #sip{type = response,
+                                            status = Status,
+                                            reason = Reason},
+                                  esip:make_tag()));
+        _ ->
+            case esip_server_transaction:start(SIPSock, Req) of
+                {ok, _} ->
+                    ok;
+                Err ->
+                    {Status, Reason} = esip:error_status(Err),
+                    esip_transport:send(SIPSock,
+                                        esip:make_response(
+                                          Req, #sip{type = response,
+                                                    status = Status,
+                                                    reason = Reason},
+                                          esip:make_tag()))
+            end
+    end.
+
+start_client_transaction(Req, TU, Opts) ->
+    MaxTransactions = esip:get_config_value(max_client_transactions),
+    case ets:lookup(?MODULE, {transaction_number, client}) of
+        [{_, N}] when N >= MaxTransactions ->
+            maybe_report_error(client, N),
+            {error, too_many_transactions};
+        _ ->
+            esip_client_transaction:start(Req, TU, Opts)
+    end.
+
+maybe_report_error(Type, N) ->
+    case ets:lookup(?MODULE, {last_error_report, Type}) of
+        [{_, Now}] ->
+            case timer:now_diff(now(), Now) of
+                T when T > 60000000 ->
+                    ets:insert(?MODULE, {{last_error_report, Type}, now()}),
+                    ?ERROR_MSG("too many ~s transactions: ~p", [Type, N]);
+                _ ->
+                    ok
+            end;
+        _ ->
+            ok
     end.
