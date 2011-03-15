@@ -109,12 +109,11 @@ proceeding(#sip{type = response, status = Status} = Resp, State) when Status < 2
     {next_state, proceeding, State#state{resp = Resp}};
 proceeding(#sip{type = response, status = Status} = Resp,
            #state{req = #sip{method = <<"INVITE">>}} = State) when Status < 300 ->
-    esip_transport:send(State#state.sock, Resp),
     gen_fsm:send_event_after(64*esip:timer1(), timer_L),
+    esip_transport:send(State#state.sock, Resp),
     {next_state, accepted, State#state{resp = Resp}};
 proceeding(#sip{type = response, status = Status} = Resp,
            #state{req = #sip{method = <<"INVITE">>}} = State) when Status >= 300 ->
-    esip_transport:send(State#state.sock, Resp),
     T1 = esip:timer1(),
     if (State#state.sock)#sip_socket.type == udp ->
             gen_fsm:send_event_after(T1, {timer_G, T1});
@@ -122,13 +121,15 @@ proceeding(#sip{type = response, status = Status} = Resp,
             ok
     end,
     gen_fsm:send_event_after(64*T1, timer_H),
+    esip_transport:send(State#state.sock, Resp),
     {next_state, completed, State#state{resp = Resp}};
 proceeding(#sip{type = response, status = Status} = Resp, State) when Status >= 200 ->
-    esip_transport:send(State#state.sock, Resp),
     if (State#state.sock)#sip_socket.type == udp ->
             gen_fsm:send_event_after(64*esip:timer1(), timer_J),
+            esip_transport:send(State#state.sock, Resp),
             {next_state, completed, State#state{resp = Resp}};
        true ->
+            esip_transport:send(State#state.sock, Resp),
             {stop, normal, State}
     end;
 proceeding(#sip{type = request, method = <<"CANCEL">>} = Req, State) ->
@@ -187,7 +188,6 @@ completed(timer_H, State) ->
     %% TODO: notify TU about a failure
     {stop, normal, State};
 completed({timer_G, T}, State) ->
-    esip_transport:send(State#state.sock, State#state.resp),
     T2 = esip:timer2(),
     case 2*T < T2 of
         true ->
@@ -195,6 +195,7 @@ completed({timer_G, T}, State) ->
         false ->
             gen_fsm:send_event_after(T2, {timer_G, T2})
     end,
+    esip_transport:send(State#state.sock, State#state.resp),
     {next_state, completed, State};
 completed(timer_J, State) ->
     {stop, normal, State};

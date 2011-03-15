@@ -92,11 +92,10 @@ trying(#sip{type = request, method = Method} = Request, State) ->
             {stop, normal, State}
     end;
 trying({timer_A, T}, State) ->
-    esip_transport:send(State#state.sock, State#state.req),
     gen_fsm:send_event_after(2*T, {timer_A, 2*T}),
+    esip_transport:send(State#state.sock, State#state.req),
     {next_state, trying, State};
 trying({timer_E, T}, State) ->
-    esip_transport:send(State#state.sock, State#state.req),
     T4 = esip:timer4(),
     case 2*T < T4 of
         true ->
@@ -104,6 +103,7 @@ trying({timer_E, T}, State) ->
         false ->
             gen_fsm:send_event_after(T4, {timer_E, T4})
     end,
+    esip_transport:send(State#state.sock, State#state.req),
     {next_state, trying, State};
 trying(Timer, State) when Timer == timer_B; Timer == timer_F ->
     pass_to_transaction_user(State, {error, timeout}),
@@ -148,8 +148,8 @@ proceeding(#sip{type = response} = Resp, State) ->
             {stop, normal, State}
     end;
 proceeding({timer_E, T}, State) ->
-    esip_transport:send(State#state.sock, State#state.req),
     gen_fsm:send_event_after(esip:timer2(), {timer_E, T}),
+    esip_transport:send(State#state.sock, State#state.req),
     {next_state, proceeding, State};
 proceeding(timer_F, State) ->
     pass_to_transaction_user(State, {error, timeout}),
