@@ -60,7 +60,7 @@ stop(Pid) ->
 init([SIPSock, Branch]) ->
     TrID = #trid{owner = self(), type = server},
     State = #state{sock = SIPSock, branch = Branch, trid = TrID},
-    erlang:send_after(?MAX_TRANSACTION_LIFETIME, self(), stop),
+    erlang:send_after(?MAX_TRANSACTION_LIFETIME, self(), timeout),
     {ok, trying, State}.
 
 trying(#sip{method = <<"CANCEL">>, type = request} = Req, State) ->
@@ -102,15 +102,15 @@ proceeding(trying, #state{resp = undefined} = State) ->
     %% TU didn't respond in 200 ms
     Resp = esip:make_response(State#state.req,
                               #sip{type = response, status = 100}),
-    esip_transport:send(State#state.sock, Resp),
+    send(State, Resp),
     {next_state, proceeding, State#state{resp = Resp}};
 proceeding(#sip{type = response, status = Status} = Resp, State) when Status < 200 ->
-    esip_transport:send(State#state.sock, Resp),
+    send(State, Resp),
     {next_state, proceeding, State#state{resp = Resp}};
 proceeding(#sip{type = response, status = Status} = Resp,
            #state{req = #sip{method = <<"INVITE">>}} = State) when Status < 300 ->
     gen_fsm:send_event_after(64*esip:timer1(), timer_L),
-    esip_transport:send(State#state.sock, Resp),
+    send(State, Resp),
     {next_state, accepted, State#state{resp = Resp}};
 proceeding(#sip{type = response, status = Status} = Resp,
            #state{req = #sip{method = <<"INVITE">>}} = State) when Status >= 300 ->
@@ -121,15 +121,15 @@ proceeding(#sip{type = response, status = Status} = Resp,
             ok
     end,
     gen_fsm:send_event_after(64*T1, timer_H),
-    esip_transport:send(State#state.sock, Resp),
+    send(State, Resp),
     {next_state, completed, State#state{resp = Resp}};
 proceeding(#sip{type = response, status = Status} = Resp, State) when Status >= 200 ->
     if (State#state.sock)#sip_socket.type == udp ->
             gen_fsm:send_event_after(64*esip:timer1(), timer_J),
-            esip_transport:send(State#state.sock, Resp),
+            send(State, Resp),
             {next_state, completed, State#state{resp = Resp}};
        true ->
-            esip_transport:send(State#state.sock, Resp),
+            send(State, Resp),
             {stop, normal, State}
     end;
 proceeding(#sip{type = request, method = <<"CANCEL">>} = Req, State) ->
@@ -147,7 +147,7 @@ proceeding(#sip{type = request, method = Method},
            #state{req = Req, resp = Resp} = State) ->
     case Req#sip.method of
 	Method when Resp /= undefined ->
-            esip_transport:send(State#state.sock, Resp),
+            send(State, Resp),
             {next_state, proceeding, State};
 	_ ->
 	    {next_state, proceeding, State}
@@ -160,7 +160,7 @@ accepted(#sip{type = request, method = <<"ACK">>} = Req, State) ->
     {next_state, accepted, State};
 accepted(#sip{type = response, status = Status} = Resp, State)
   when Status >= 200, Status < 300 ->
-    esip_transport:send(State#state.sock, Resp),
+    catch send(State, Resp),
     {next_state, accepted, State};
 accepted(timer_L, State) ->
     {stop, normal, State};
@@ -179,13 +179,13 @@ completed(#sip{type = request, method = Method},
           #state{req = Req, resp = Resp} = State) ->
     case Req#sip.method of
 	Method ->
-            esip_transport:send(State#state.sock, Resp),
+            send(State, Resp),
             {next_state, completed, State};
 	_ ->
 	    {next_state, completed, State}
     end;
 completed(timer_H, State) ->
-    %% TODO: notify TU about a failure
+    pass_to_transaction_user(State, {error, timeout}),
     {stop, normal, State};
 completed({timer_G, T}, State) ->
     T2 = esip:timer2(),
@@ -195,7 +195,7 @@ completed({timer_G, T}, State) ->
         false ->
             gen_fsm:send_event_after(T2, {timer_G, T2})
     end,
-    esip_transport:send(State#state.sock, State#state.resp),
+    send(State, State#state.resp),
     {next_state, completed, State};
 completed(timer_J, State) ->
     {stop, normal, State};
@@ -215,7 +215,8 @@ handle_event(_Event, StateName, State) ->
 handle_sync_event(_Event, _From, StateName, State) ->
     {reply, ok, StateName, State}.
 
-handle_info(stop, _StateName, State) ->
+handle_info(timeout, _StateName, State) ->
+    pass_to_transaction_user(State, {error, timeout}),
     {stop, normal, State};
 handle_info(_Info, StateName, State) ->
     {next_state, StateName, State}.
@@ -266,4 +267,13 @@ find_transaction_user(Req, SIPSock, TrID) ->
             end;
         _ ->
             esip:callback(request, [Req, SIPSock, TrID])
+    end.
+
+send(State, Resp) ->
+    case esip_transport:send(State#state.sock, Resp) of
+        ok ->
+            ok;
+        Err ->
+            pass_to_transaction_user(State, Err),
+            exit(normal)
     end.

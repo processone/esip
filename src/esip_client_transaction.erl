@@ -26,6 +26,8 @@
 -include("esip.hrl").
 -include("esip_lib.hrl").
 
+-define(MAX_TRANSACTION_LIFETIME, timer:minutes(5)).
+
 -record(state, {req, tu, sock, trid, branch, cancelled = false}).
 
 %%%===================================================================
@@ -65,6 +67,7 @@ init([TU, Opts]) ->
                     {value, {_, S}} -> S;
                     _ -> undefined
                 end,
+    erlang:send_after(?MAX_TRANSACTION_LIFETIME, self(), timeout),
     {ok, trying, #state{tu = TU, trid = TrID, sock = SIPSocket}}.
 
 trying(#sip{type = request, method = Method} = Request, State) ->
@@ -84,16 +87,17 @@ trying(#sip{type = request, method = Method} = Request, State) ->
                true ->
                     gen_fsm:send_event_after(64*T1, timer_F)
             end,
-            esip_transport:send(SIPSock, NewRequest),
-            {next_state, trying, State#state{sock = SIPSock, req = NewRequest,
-                                             branch = Branch}};
+            NewState = State#state{sock = SIPSock, req = NewRequest,
+                                   branch = Branch},
+            send(NewState, NewRequest),
+            {next_state, trying, NewState};
         Err ->
             pass_to_transaction_user(State#state{req = Request}, Err),
             {stop, normal, State}
     end;
 trying({timer_A, T}, State) ->
     gen_fsm:send_event_after(2*T, {timer_A, 2*T}),
-    esip_transport:send(State#state.sock, State#state.req),
+    send(State, State#state.req),
     {next_state, trying, State};
 trying({timer_E, T}, State) ->
     T4 = esip:timer4(),
@@ -103,7 +107,7 @@ trying({timer_E, T}, State) ->
         false ->
             gen_fsm:send_event_after(T4, {timer_E, T4})
     end,
-    esip_transport:send(State#state.sock, State#state.req),
+    send(State, State#state.req),
     {next_state, trying, State};
 trying(Timer, State) when Timer == timer_B; Timer == timer_F ->
     pass_to_transaction_user(State, {error, timeout}),
@@ -132,11 +136,12 @@ proceeding(#sip{type = response, status = Status} = Resp,
 proceeding(#sip{type = response, status = Status} = Resp,
            #state{req = #sip{method = <<"INVITE">>}} = State) when Status >= 300 ->
     pass_to_transaction_user(State, Resp),
-    send_ack(State, Resp),
     if (State#state.sock)#sip_socket.type == udp ->
             gen_fsm:send_event_after(64*esip:timer1(), timer_D),
+            send_ack(State, Resp),
             {next_state, completed, State};
        true ->
+            send_ack(State, Resp),
             {stop, normal, State}
     end;
 proceeding(#sip{type = response} = Resp, State) ->
@@ -149,7 +154,7 @@ proceeding(#sip{type = response} = Resp, State) ->
     end;
 proceeding({timer_E, T}, State) ->
     gen_fsm:send_event_after(esip:timer2(), {timer_E, T}),
-    esip_transport:send(State#state.sock, State#state.req),
+    send(State, State#state.req),
     {next_state, proceeding, State};
 proceeding(timer_F, State) ->
     pass_to_transaction_user(State, {error, timeout}),
@@ -186,6 +191,8 @@ completed(#sip{type = response, status = Status} = Resp, State) when Status >= 3
 completed(_Event, State) ->
     {next_state, completed, State}.
 
+handle_event(stop, _StateName, State) ->
+    {stop, normal, State};
 handle_event(_Event, StateName, State) ->
     {next_state, StateName, State}.
 
@@ -193,6 +200,9 @@ handle_sync_event(_Event, _From, StateName, State) ->
     Reply = ok,
     {reply, Reply, StateName, State}.
 
+handle_info(timeout, _StateName, State) ->
+    pass_to_transaction_user(State, {error, timeout}),
+    {stop, normal, State};
 handle_info(_Info, StateName, State) ->
     {next_state, StateName, State}.
 
@@ -232,7 +242,7 @@ send_ack(#state{req = #sip{uri = URI, hdrs = Hdrs,
                uri = URI,
                method = <<"ACK">>,
                hdrs = [{via, [Via]},{to, To}|Hdrs1]},
-    esip_transport:send(State#state.sock, ACK);
+    send(State, ACK);
 send_ack(_, _) ->
     ok.
 
@@ -271,3 +281,12 @@ connect(#state{sock = SIPSocket}, #sip{hdrs = Hdrs} = Req) ->
     Branch = esip:make_branch(Hdrs),
     NewHdrs = [esip_transport:make_via_hdr(VHost, Branch)|Hdrs],
     {ok, SIPSocket, Req#sip{hdrs = NewHdrs}, Branch}.
+
+send(State, Resp) ->
+    case esip_transport:send(State#state.sock, Resp) of
+        ok ->
+            ok;
+        Err ->
+            pass_to_transaction_user(State, Err),
+            exit(normal)
+    end.
