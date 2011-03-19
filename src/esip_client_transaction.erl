@@ -89,16 +89,24 @@ trying(#sip{type = request, method = Method} = Request, State) ->
             end,
             NewState = State#state{sock = SIPSock, req = NewRequest,
                                    branch = Branch},
-            send(NewState, NewRequest),
-            {next_state, trying, NewState};
+            case send(NewState, NewRequest) of
+                ok ->
+                    {next_state, trying, NewState};
+                _ ->
+                    {stop, normal, NewState}
+            end;
         Err ->
             pass_to_transaction_user(State#state{req = Request}, Err),
             {stop, normal, State}
     end;
 trying({timer_A, T}, State) ->
     gen_fsm:send_event_after(2*T, {timer_A, 2*T}),
-    send(State, State#state.req),
-    {next_state, trying, State};
+    case send(State, State#state.req) of
+        ok ->
+            {next_state, trying, State};
+        _ ->
+            {stop, normal, State}
+    end;
 trying({timer_E, T}, State) ->
     T4 = esip:timer4(),
     case 2*T < T4 of
@@ -107,8 +115,12 @@ trying({timer_E, T}, State) ->
         false ->
             gen_fsm:send_event_after(T4, {timer_E, T4})
     end,
-    send(State, State#state.req),
-    {next_state, trying, State};
+    case send(State, State#state.req) of
+        ok ->
+            {next_state, trying, State};
+        _ ->
+            {stop, normal, State}
+    end;
 trying(Timer, State) when Timer == timer_B; Timer == timer_F ->
     pass_to_transaction_user(State, {error, timeout}),
     {stop, normal, State};
@@ -138,8 +150,12 @@ proceeding(#sip{type = response, status = Status} = Resp,
     pass_to_transaction_user(State, Resp),
     if (State#state.sock)#sip_socket.type == udp ->
             gen_fsm:send_event_after(64*esip:timer1(), timer_D),
-            send_ack(State, Resp),
-            {next_state, completed, State};
+            case send_ack(State, Resp) of
+                ok ->
+                    {next_state, completed, State};
+                _ ->
+                    {stop, normal, State}
+            end;
        true ->
             send_ack(State, Resp),
             {stop, normal, State}
@@ -154,8 +170,12 @@ proceeding(#sip{type = response} = Resp, State) ->
     end;
 proceeding({timer_E, T}, State) ->
     gen_fsm:send_event_after(esip:timer2(), {timer_E, T}),
-    send(State, State#state.req),
-    {next_state, proceeding, State};
+    case send(State, State#state.req) of
+        ok ->
+            {next_state, proceeding, State};
+        _ ->
+            {stop, normal, State}
+    end;
 proceeding(timer_F, State) ->
     pass_to_transaction_user(State, {error, timeout}),
     {stop, normal, State};
@@ -186,8 +206,12 @@ completed(timer_D, State) ->
 completed(timer_K, State) ->
     {stop, normal, State};
 completed(#sip{type = response, status = Status} = Resp, State) when Status >= 300 ->
-    send_ack(State, Resp),
-    {next_state, completed, State};
+    case send_ack(State, Resp) of
+        ok ->
+            {next_state, completed, State};
+        _ ->
+            {stop, normal, State}
+    end;
 completed(_Event, State) ->
     {next_state, completed, State}.
 
@@ -288,5 +312,5 @@ send(State, Resp) ->
             ok;
         Err ->
             pass_to_transaction_user(State, Err),
-            exit(normal)
+            Err
     end.

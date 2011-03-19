@@ -102,16 +102,28 @@ proceeding(trying, #state{resp = undefined} = State) ->
     %% TU didn't respond in 200 ms
     Resp = esip:make_response(State#state.req,
                               #sip{type = response, status = 100}),
-    send(State, Resp),
-    {next_state, proceeding, State#state{resp = Resp}};
+    case send(State, Resp) of
+        ok ->
+            {next_state, proceeding, State#state{resp = Resp}};
+        _ ->
+            {stop, normal, State}
+    end;
 proceeding(#sip{type = response, status = Status} = Resp, State) when Status < 200 ->
-    send(State, Resp),
-    {next_state, proceeding, State#state{resp = Resp}};
+    case send(State, Resp) of
+        ok ->
+            {next_state, proceeding, State#state{resp = Resp}};
+        _ ->
+            {stop, normal, State}
+    end;
 proceeding(#sip{type = response, status = Status} = Resp,
            #state{req = #sip{method = <<"INVITE">>}} = State) when Status < 300 ->
     gen_fsm:send_event_after(64*esip:timer1(), timer_L),
-    send(State, Resp),
-    {next_state, accepted, State#state{resp = Resp}};
+    case send(State, Resp) of
+        ok ->
+            {next_state, accepted, State#state{resp = Resp}};
+        _ ->
+            {stop, normal, State}
+    end;
 proceeding(#sip{type = response, status = Status} = Resp,
            #state{req = #sip{method = <<"INVITE">>}} = State) when Status >= 300 ->
     T1 = esip:timer1(),
@@ -121,13 +133,21 @@ proceeding(#sip{type = response, status = Status} = Resp,
             ok
     end,
     gen_fsm:send_event_after(64*T1, timer_H),
-    send(State, Resp),
-    {next_state, completed, State#state{resp = Resp}};
+    case send(State, Resp) of
+        ok ->
+            {next_state, completed, State#state{resp = Resp}};
+        _ ->
+            {stop, normal, State}
+    end;
 proceeding(#sip{type = response, status = Status} = Resp, State) when Status >= 200 ->
     if (State#state.sock)#sip_socket.type == udp ->
             gen_fsm:send_event_after(64*esip:timer1(), timer_J),
-            send(State, Resp),
-            {next_state, completed, State#state{resp = Resp}};
+            case send(State, Resp) of
+                ok ->
+                    {next_state, completed, State#state{resp = Resp}};
+                _ ->
+                    {stop, normal, State}
+            end;
        true ->
             send(State, Resp),
             {stop, normal, State}
@@ -147,8 +167,12 @@ proceeding(#sip{type = request, method = Method},
            #state{req = Req, resp = Resp} = State) ->
     case Req#sip.method of
 	Method when Resp /= undefined ->
-            send(State, Resp),
-            {next_state, proceeding, State};
+            case send(State, Resp) of
+                ok ->
+                    {next_state, proceeding, State};
+                _ ->
+                    {stop, normal, State}
+            end;
 	_ ->
 	    {next_state, proceeding, State}
     end;
@@ -160,7 +184,7 @@ accepted(#sip{type = request, method = <<"ACK">>} = Req, State) ->
     {next_state, accepted, State};
 accepted(#sip{type = response, status = Status} = Resp, State)
   when Status >= 200, Status < 300 ->
-    catch send(State, Resp),
+    send(State, Resp),
     {next_state, accepted, State};
 accepted(timer_L, State) ->
     {stop, normal, State};
@@ -179,8 +203,12 @@ completed(#sip{type = request, method = Method},
           #state{req = Req, resp = Resp} = State) ->
     case Req#sip.method of
 	Method ->
-            send(State, Resp),
-            {next_state, completed, State};
+            case send(State, Resp) of
+                ok ->
+                    {next_state, completed, State};
+                _ ->
+                    {stop, normal, State}
+            end;
 	_ ->
 	    {next_state, completed, State}
     end;
@@ -195,8 +223,12 @@ completed({timer_G, T}, State) ->
         false ->
             gen_fsm:send_event_after(T2, {timer_G, T2})
     end,
-    send(State, State#state.resp),
-    {next_state, completed, State};
+    case send(State, State#state.resp) of
+        ok ->
+            {next_state, completed, State};
+        _ ->
+            {stop, normal, State}
+    end;
 completed(timer_J, State) ->
     {stop, normal, State};
 completed(_Event, State) ->
@@ -275,5 +307,5 @@ send(State, Resp) ->
             ok;
         Err ->
             pass_to_transaction_user(State, Err),
-            exit(normal)
+            Err
     end.
