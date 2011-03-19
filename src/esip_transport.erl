@@ -37,28 +37,32 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-recv(SIPSock, #sip{type = OrigType} = Msg) ->
-    NewMsg = case esip:callback(message_in, [Msg, SIPSock]) of
-                 drop -> ok;
-                 Msg1 = #sip{} -> Msg1;
-                 _ -> Msg
-             end,
-    case NewMsg of
-        #sip{type = request} ->
-            case prepare_request(SIPSock, NewMsg) of
-                #sip{} = NewRequest ->
-                    esip_transaction:process(SIPSock, NewRequest);
+recv(SIPSock, #sip{type = request} = Req) ->
+    case prepare_request(SIPSock, Req) of
+        #sip{} = NewReq ->
+            case esip:callback(message_in, [NewReq, SIPSock]) of
+                drop ->
+                    ok;
+                #sip{type = request} = NewReq1 ->
+                    esip_transaction:process(SIPSock, NewReq1);
+                #sip{type = response} = Resp ->
+                    send(SIPSock, Resp);
                 _ ->
-                    ok
+                    esip_transaction:process(SIPSock, NewReq)
             end;
-        #sip{type = response} when OrigType == request ->
-            send(SIPSock, NewMsg);
-        #sip{type = response} ->
-            case prepare_response(SIPSock, NewMsg) of
-                #sip{} = NewResponse ->
-                    esip_transaction:process(SIPSock, NewResponse);
+        _ ->
+            ok
+    end;
+recv(SIPSock, #sip{type = response} = Resp) ->
+    case prepare_response(SIPSock, Resp) of
+        #sip{} = NewResp ->
+            case esip:callback(message_in, [NewResp, SIPSock]) of
+                drop ->
+                    ok;
+                #sip{type = response} = NewResp1 ->
+                    esip_transaction:process(SIPSock, NewResp1);
                 _ ->
-                    ok
+                    esip_transaction:process(SIPSock, NewResp)
             end;
         _ ->
             ok
@@ -85,7 +89,7 @@ send(#sip_socket{type = Transport} = SIPSock, Msg) ->
 send(#sip{type = response, hdrs = Hdrs} = Resp, Opts) ->
     case lists:keysearch(socket, 1, Opts) of
         {value, {_, SIPSocket}} ->
-            esip:send(SIPSocket, Resp);
+            send(SIPSocket, Resp);
         _ ->
             [Via|_] = esip:get_hdrs(via, Hdrs),
             VirtualHost = case esip:get_hdr(to, Hdrs) of
@@ -104,7 +108,7 @@ send(#sip{type = response, hdrs = Hdrs} = Resp, Opts) ->
 send(#sip{type = request, uri = URI, hdrs = Hdrs} = Req, Opts) ->
     case lists:keysearch(socket, 1, Opts) of
         {value, {_, SIPSocket}} ->
-            esip:send(SIPSocket, Req);
+            send(SIPSocket, Req);
         _ ->
             NewURI = case esip:get_hdrs(route, Hdrs) of
                          [{_, RouteURI, _}|_] ->
