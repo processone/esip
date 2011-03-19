@@ -43,6 +43,7 @@
          get_node_by_tag/1,
          get_param/2,
          get_param/3,
+         get_so_path/0,
          has_param/2,
          hex_encode/1,
          is_my_via/1,
@@ -75,6 +76,7 @@
          set_hdr/3,
          set_param/3,
          split_hdrs/2,
+         stop_transaction/1,
          timer1/0,
          timer2/0,
          timer4/0,
@@ -125,6 +127,19 @@ start(Module, Opts) ->
 
 stop() ->
     application:stop(esip).
+
+get_so_path() ->
+    case os:getenv("ESIP_SO_PATH") of
+        false ->
+            case code:priv_dir(esip) of
+                {error, _} ->
+                    ".";
+                Path ->
+                    filename:join([Path, "lib"])
+            end;
+        Path ->
+            Path
+    end.
 
 request(Request) ->
     request(Request, undefined).
@@ -179,6 +194,9 @@ ack(DialogID = #dialog_id{}, Opts) ->
     dialog_send(DialogID, #sip{type = request,
                                method = <<"ACK">>,
                                hdrs = esip:make_hdrs()}, Opts).
+
+stop_transaction(TrID) ->
+    esip_transaction:stop(TrID).
 
 make_tag() ->
     {NodeID, N} = gen_server:call(?MODULE, make_tag),
@@ -540,9 +558,9 @@ error_status(timeout) ->
     {408, reason(408)};
 error_status(no_contact_header) ->
     {400, <<"Missed Contact header">>};
-error_status(internal_server_error) ->
-    {500, reason(500)};
-error_status(Err) ->
+error_status(too_many_transactions) ->
+    {500, <<"Too Many Transactions">>};
+error_status(Err) when is_atom(Err) ->
     case inet:format_error(Err) of
         "unknown POSIX error" ->
             {500, reason(500)};
@@ -550,10 +568,12 @@ error_status(Err) ->
             {503, list_to_binary([H - $ |T])};
         Txt ->
             {503, Txt}
-    end.
+    end;
+error_status(_) ->
+    {500, reason(500)}.
 
 get_node_by_tag(Tag) ->
-    case binary:split(Tag, <<"-">>) of
+    case esip_codec:split(Tag, $-, 1) of
         [NodeID, _] ->
             get_node_by_id(NodeID);
         _ ->

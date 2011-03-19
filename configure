@@ -525,6 +525,66 @@ as_tr_cpp="eval sed 'y%*$as_cr_letters%P$as_cr_LETTERS%;s%[^_$as_cr_alnum]%_%g'"
 # Sed expression to map a string onto a valid variable name.
 as_tr_sh="eval sed 'y%*+%pp%;s%[^_$as_cr_alnum]%_%g'"
 
+as_awk_strverscmp='
+  # Use only awk features that work with 7th edition Unix awk (1978).
+  # My, what an old awk you have, Mr. Solaris!
+  END {
+    while (length(v1) && length(v2)) {
+      # Set d1 to be the next thing to compare from v1, and likewise for d2.
+      # Normally this is a single character, but if v1 and v2 contain digits,
+      # compare them as integers and fractions as strverscmp does.
+      if (v1 ~ /^[0-9]/ && v2 ~ /^[0-9]/) {
+	# Split v1 and v2 into their leading digit string components d1 and d2,
+	# and advance v1 and v2 past the leading digit strings.
+	for (len1 = 1; substr(v1, len1 + 1) ~ /^[0-9]/; len1++) continue
+	for (len2 = 1; substr(v2, len2 + 1) ~ /^[0-9]/; len2++) continue
+	d1 = substr(v1, 1, len1); v1 = substr(v1, len1 + 1)
+	d2 = substr(v2, 1, len2); v2 = substr(v2, len2 + 1)
+	if (d1 ~ /^0/) {
+	  if (d2 ~ /^0/) {
+	    # Compare two fractions.
+	    while (d1 ~ /^0/ && d2 ~ /^0/) {
+	      d1 = substr(d1, 2); len1--
+	      d2 = substr(d2, 2); len2--
+	    }
+	    if (len1 != len2 && ! (len1 && len2 && substr(d1, 1, 1) == substr(d2, 1, 1))) {
+	      # The two components differ in length, and the common prefix
+	      # contains only leading zeros.  Consider the longer to be less.
+	      d1 = -len1
+	      d2 = -len2
+	    } else {
+	      # Otherwise, compare as strings.
+	      d1 = "x" d1
+	      d2 = "x" d2
+	    }
+	  } else {
+	    # A fraction is less than an integer.
+	    exit 1
+	  }
+	} else {
+	  if (d2 ~ /^0/) {
+	    # An integer is greater than a fraction.
+	    exit 2
+	  } else {
+	    # Compare two integers.
+	    d1 += 0
+	    d2 += 0
+	  }
+	}
+      } else {
+	# The normal case, without worrying about digits.
+	d1 = substr(v1, 1, 1); v1 = substr(v1, 2)
+	d2 = substr(v2, 1, 1); v2 = substr(v2, 2)
+      }
+      if (d1 < d2) exit 1
+      if (d1 > d2) exit 2
+    }
+    # Beware Solaris /usr/xgp4/bin/awk (at least through Solaris 10),
+    # which mishandles some comparisons of empty strings to integers.
+    if (length(v2)) exit 1
+    if (length(v1)) exit 2
+  }
+'
 
 test -n "$DJDIR" || exec 7<&0 </dev/null
 exec 6>&1
@@ -603,6 +663,7 @@ build_os
 build_vendor
 build_cpu
 build
+NIF
 LIBOBJS
 EGREP
 GREP
@@ -615,10 +676,9 @@ CPPFLAGS
 LDFLAGS
 CFLAGS
 CC
-ERLANG_LIB_VER_erl_interface
-ERLANG_LIB_DIR_erl_interface
 ERLANG_LIB_VER_tools
 ERLANG_LIB_DIR_tools
+ERLANG_ERTS_VER
 ERLANG_LIB_DIR
 ERLANG_ROOT_DIR
 ERLCFLAGS
@@ -2339,6 +2399,58 @@ $as_echo "$ac_cv_erlang_lib_dir" >&6; }
 ERLANG_LIB_DIR=$ac_cv_erlang_lib_dir
 
 
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for Erlang/OTP ERTS version" >&5
+$as_echo_n "checking for Erlang/OTP ERTS version... " >&6; }
+if test "${ac_cv_erlang_erts_ver+set}" = set; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_ext=erl
+ac_compile='$ERLC $ERLCFLAGS -b beam conftest.$ac_ext >&5'
+ac_link='$ERLC $ERLCFLAGS -b beam conftest.$ac_ext >&5 && echo "#!/bin/sh" > conftest$ac_exeext && $as_echo "\"$ERL\" -run conftest start -run init stop -noshell" >> conftest$ac_exeext && chmod +x conftest$ac_exeext'
+     if test "$cross_compiling" = yes; then :
+  { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
+$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
+as_fn_error $? "cannot run test program while cross compiling
+See \`config.log' for more details" "$LINENO" 5 ; }
+else
+  cat > conftest.$ac_ext <<_ACEOF
+-module(conftest).
+-export([start/0]).
+
+start() ->
+	    Version = erlang:system_info(version),
+	    file:write_file("conftest.out", Version),
+	    ReturnValue = 0,
+	    halt(ReturnValue)
+.
+
+_ACEOF
+if ac_fn_erl_try_run "$LINENO"; then :
+  ac_cv_erlang_erts_ver=`cat conftest.out`
+	 rm -f conftest.out
+else
+  rm -f conftest.out
+	 { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
+$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
+as_fn_error $? "test Erlang program execution failed
+See \`config.log' for more details" "$LINENO" 5 ; }
+fi
+rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
+  conftest.$ac_objext conftest.beam conftest.$ac_ext
+fi
+
+     ac_ext=c
+ac_cpp='$CPP $CPPFLAGS'
+ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+ac_compiler_gnu=$ac_cv_c_compiler_gnu
+
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_erlang_erts_ver" >&5
+$as_echo "$ac_cv_erlang_erts_ver" >&6; }
+ERLANG_ERTS_VER=$ac_cv_erlang_erts_ver
+
+
 
 # Checks for Erlang 'tools' library since make.erl is a part of it
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for Erlang/OTP 'tools' library subdirectory" >&5
@@ -2418,85 +2530,6 @@ ERLANG_LIB_VER_tools=$ac_cv_erlang_lib_ver_tools
 
 if test "$ac_cv_erlang_lib_dir_tools" = "not found"; then :
   as_fn_error $? "'tools' was not found, unable to build Emakefile" "$LINENO" 5
-fi
-
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for Erlang/OTP 'erl_interface' library subdirectory" >&5
-$as_echo_n "checking for Erlang/OTP 'erl_interface' library subdirectory... " >&6; }
-if test "${ac_cv_erlang_lib_dir_erl_interface+set}" = set; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_ext=erl
-ac_compile='$ERLC $ERLCFLAGS -b beam conftest.$ac_ext >&5'
-ac_link='$ERLC $ERLCFLAGS -b beam conftest.$ac_ext >&5 && echo "#!/bin/sh" > conftest$ac_exeext && $as_echo "\"$ERL\" -run conftest start -run init stop -noshell" >> conftest$ac_exeext && chmod +x conftest$ac_exeext'
-     if test "$cross_compiling" = yes; then :
-  { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
-$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
-as_fn_error $? "cannot run test program while cross compiling
-See \`config.log' for more details" "$LINENO" 5 ; }
-else
-  cat > conftest.$ac_ext <<_ACEOF
--module(conftest).
--export([start/0]).
-
-start() ->
-	    ReturnValue = case code:lib_dir("erl_interface") of
-	    {error, bad_name} ->
-		file:write_file("conftest.out", "not found\n"),
-		1;
-	    LibDir ->
-		file:write_file("conftest.out", LibDir),
-		0
-	    end,
-	    halt(ReturnValue)
-.
-
-_ACEOF
-if ac_fn_erl_try_run "$LINENO"; then :
-  ac_cv_erlang_lib_dir_erl_interface=`cat conftest.out`
-	 rm -f conftest.out
-else
-  if test ! -f conftest.out; then
-	     { { $as_echo "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
-$as_echo "$as_me: error: in \`$ac_pwd':" >&2;}
-as_fn_error $? "test Erlang program execution failed
-See \`config.log' for more details" "$LINENO" 5 ; }
-	 else
-	     ac_cv_erlang_lib_dir_erl_interface="not found"
-	     rm -f conftest.out
-	 fi
-fi
-rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
-  conftest.$ac_objext conftest.beam conftest.$ac_ext
-fi
-
-     ac_ext=c
-ac_cpp='$CPP $CPPFLAGS'
-ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
-ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
-ac_compiler_gnu=$ac_cv_c_compiler_gnu
-
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_erlang_lib_dir_erl_interface" >&5
-$as_echo "$ac_cv_erlang_lib_dir_erl_interface" >&6; }
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for Erlang/OTP 'erl_interface' library version" >&5
-$as_echo_n "checking for Erlang/OTP 'erl_interface' library version... " >&6; }
-if test "${ac_cv_erlang_lib_ver_erl_interface+set}" = set; then :
-  $as_echo_n "(cached) " >&6
-else
-  if test "$ac_cv_erlang_lib_dir_erl_interface" = "not found"; then :
-  ac_cv_erlang_lib_ver_erl_interface="not found"
-else
-  ac_cv_erlang_lib_ver_erl_interface=`$as_echo "$ac_cv_erlang_lib_dir_erl_interface" | sed -n -e 's,^.*-\([^/-]*\)$,\1,p'`
-fi
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_erlang_lib_ver_erl_interface" >&5
-$as_echo "$ac_cv_erlang_lib_ver_erl_interface" >&6; }
-ERLANG_LIB_DIR_erl_interface=$ac_cv_erlang_lib_dir_erl_interface
-
-ERLANG_LIB_VER_erl_interface=$ac_cv_erlang_lib_ver_erl_interface
-
-if test "$ac_cv_erlang_lib_dir_erl_interface" = "not found"; then :
-  as_fn_error $? "'erl_interface' was not found, unable to build Erlang drivers" "$LINENO" 5
 fi
 
 
@@ -3988,6 +4021,29 @@ $as_echo "#define STDC_HEADERS 1" >>confdefs.h
 fi
 
 
+ac_fn_c_check_header_mongrel "$LINENO" "erl_nif.h" "ac_cv_header_erl_nif_h" "$ac_includes_default"
+if test "x$ac_cv_header_erl_nif_h" = x""yes; then :
+  # Use old-style NIFs if Erlang <= R13B4
+		as_arg_v1=5.7.5
+as_arg_v2=$ERLANG_ERTS_VER
+awk "$as_awk_strverscmp" v1="$as_arg_v1" v2="$as_arg_v2" /dev/null
+case $? in #(
+  1) :
+     ;; #(
+  0) :
+    CFLAGS="$CFLAGS -DNIF_OLD" ;; #(
+  2) :
+    CFLAGS="$CFLAGS -DNIF_OLD" ;; #(
+  *) :
+     ;;
+esac
+		 NIF=USE_NIF
+fi
+
+
+
+
+
 ac_aux_dir=
 for ac_dir in "$srcdir" "$srcdir/.." "$srcdir/../.."; do
   if test -f "$ac_dir/install-sh"; then
@@ -4174,7 +4230,7 @@ CFLAGS="$CFLAGS $CBIT"
 LD_SHARED="$LD_SHARED $CBIT"
 echo "CBIT is set to '$CBIT'"
 
-ac_config_files="$ac_config_files Makefile ebin/esip.app"
+ac_config_files="$ac_config_files Makefile Emakefile ebin/esip.app"
 
 
 cat >confcache <<\_ACEOF
@@ -4883,6 +4939,7 @@ for ac_config_target in $ac_config_targets
 do
   case $ac_config_target in
     "Makefile") CONFIG_FILES="$CONFIG_FILES Makefile" ;;
+    "Emakefile") CONFIG_FILES="$CONFIG_FILES Emakefile" ;;
     "ebin/esip.app") CONFIG_FILES="$CONFIG_FILES ebin/esip.app" ;;
 
   *) as_fn_error $? "invalid argument: \`$ac_config_target'" "$LINENO" 5 ;;

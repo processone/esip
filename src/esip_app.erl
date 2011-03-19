@@ -16,6 +16,7 @@
 %% Application callbacks
 %%====================================================================
 start(_Type, _StartArgs) ->
+    esip_codec:start(),
     case esip_sup:start_link() of
 	{ok, Pid} -> 
 	    {ok, Pid};

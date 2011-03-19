@@ -10,12 +10,11 @@ AC_ERLANG_NEED_ERLC
 # Checks and sets ERLANG_ROOT_DIR and ERLANG_LIB_DIR variable
 AC_ERLANG_SUBST_ROOT_DIR
 AC_ERLANG_SUBST_LIB_DIR
+AC_ERLANG_SUBST_ERTS_VER
 
 # Checks for Erlang 'tools' library since make.erl is a part of it
 AC_ERLANG_CHECK_LIB([tools], [],
     [AC_MSG_ERROR(['tools' was not found, unable to build Emakefile])])
-AC_ERLANG_CHECK_LIB([erl_interface], [],
-    [AC_MSG_ERROR(['erl_interface' was not found, unable to build Erlang drivers])])
 
 # Checks for programs.
 AC_PROG_CC
@@ -31,6 +30,16 @@ AC_C_CONST
 # Checks for library functions.
 AC_FUNC_MALLOC
 AC_HEADER_STDC
+
+AC_CHECK_HEADER(erl_nif.h,
+		# Use old-style NIFs if Erlang <= R13B4
+		[AS_VERSION_COMPARE(5.7.5, $ERLANG_ERTS_VER, [],
+				    [CFLAGS="$CFLAGS -DNIF_OLD"],
+				    [CFLAGS="$CFLAGS -DNIF_OLD"])
+		 NIF=USE_NIF],
+		[])
+
+AC_SUBST(NIF)
 
 AC_CANONICAL_SYSTEM
 case "$target_os" in
@@ -56,6 +65,7 @@ LD_SHARED="$LD_SHARED $CBIT"
 echo "CBIT is set to '$CBIT'"
 
 AC_CONFIG_FILES([Makefile
+		 Emakefile
 		 ebin/esip.app])
 
 AC_OUTPUT

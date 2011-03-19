@@ -8,41 +8,75 @@
 %%%-------------------------------------------------------------------
 -module(esip_codec).
 
--compile(export_all).
-
 %% API
--export([]).
+-export([start/0,
+         decode/1,
+         decode/2,
+         decode_uri_field/1,
+         decode_uri/1,
+         split/1,
+         split/2,
+         split/3,
+         encode_uri_field/1,
+         encode_uri/1,
+         encode/1,
+         to_lower/1,
+         to_integer/3,
+         str/2]).
+
+%% Test
+-export([test/0, test_loop/0, test_loop/3, test_loop/4]).
 
 -include("esip.hrl").
+-include("esip_lib.hrl").
 
 %%%===================================================================
 %%% API
 %%%===================================================================
+-ifdef(USE_NIF).
+start() ->
+    case catch erlang:load_nif(atom_to_list(?MODULE), 0) of
+        ok ->
+            ok;
+        _Err ->
+            SOPath = filename:join(esip:get_so_path(), atom_to_list(?MODULE)),
+            case catch erlang:load_nif(SOPath, 0) of
+                ok ->
+                    ok;
+                Err ->
+                    ?ERROR_MSG("unable to load ~s NIF: ~p", [?MODULE, Err])
+            end
+    end.
+-else.
+start() ->
+    ok.
+-endif.
+
 decode(Data) ->
     decode(Data, datagram).
 
 decode(Data, stream) ->
-    case binary:match(Data, <<"\r\n\r\n">>) of
-        {_, _} ->
-            do_decode(Data, stream);
+    case str(Data, <<"\r\n\r\n">>) of
+        nomatch ->
+            more;
         _ ->
-            more
+            do_decode(Data, stream)
     end;
 decode(Data, datagram) ->
     do_decode(Data, datagram).
 
 do_decode(Data, Type) ->
-    case binary:match(Data, <<"\r\n">>) of
-        {Pos, Len} ->
-            <<Head:Pos/binary, _:Len/binary, Tail/binary>> = Data,
+    case str(Data, <<"\r\n">>) of
+        nomatch ->
+            more;
+        Pos ->
+            <<Head:Pos/binary, _:2/binary, Tail/binary>> = Data,
             case decode_start_line(Head) of
                 {error, _Reason} = Err ->
                     Err;
                 StartLine ->
                     do_decode(Tail, StartLine, Type)
-            end;
-        nomatch ->
-            more
+            end
     end.
 
 do_decode(Tail, StartLine, Type) ->
@@ -92,14 +126,14 @@ decode_via(ViaData) ->
          (Data) ->
               case split(Data, $/, 3) of
                   [Proto, <<Maj, $., Min>>, Tail] ->
-                      case split(Tail, $ , 1) of
+                      case split(Tail, wsp, 1) of
                           [Transport, Tail1] ->
                               case decode_uri_host(Tail1, #uri{}) of
                                   #uri{host = Host, port = Port, params = Params} ->
                                       [#via{proto = Proto,
                                             version = {Maj-48, Min-48},
                                             transport = to_upper(Transport),
-                                            host = strip_wsp(Host),
+                                            host = Host,
                                             port = Port,
                                             params = Params}];
                                   error ->
@@ -137,10 +171,15 @@ decode_uri_field(Data, Acc) ->
                                     [{Name, U, FParams}|Acc]
                             end
                     end;
-                _ ->
-                    Acc
+                [Head] ->
+                    case decode_uri(Head) of
+                        error ->
+                            error;
+                        U ->
+                            [{Name, U, []}|Acc]
+                    end
             end;
-        [<<C, _/binary>> = URI] when C /= $", C /= $' ->
+        [URI] ->
             case split(URI, $;, 1) of
                 [_] ->
                     case decode_uri(URI) of
@@ -162,11 +201,11 @@ decode_uri_field(Data, Acc) ->
     end.
 
 decode_uri(Data, URI) ->
-    case binary:split(Data, <<":">>) of
+    case split(Data, $:, 1) of
         [Scheme, UserHost] ->
-            case binary:split(UserHost, <<"@">>) of
+            case split(UserHost, $@, 1) of
                 [UserPass, HostPort] ->
-                    case binary:split(UserPass, <<":">>) of
+                    case split(UserPass, $:, 1) of
                         [User, Password] ->
                             decode_uri_host(HostPort,
                                             URI#uri{scheme = Scheme,
@@ -185,32 +224,36 @@ decode_uri(Data, URI) ->
     end.
 
 decode_uri_host(Data, URI) ->
-    case binary:match(Data, [<<";">>, <<":">>]) of
-        nomatch ->
-            URI#uri{host = Data};
-        {Pos, _} ->
-            case Data of
-                <<Host:Pos/binary, $:, Tail/binary>> ->
-                    case binary:split(Tail, <<";">>) of
-                        [Port, Params] ->
-                            case to_integer(Port, 0, 65535) of
-                                {ok, PortInt} ->
-                                    URI#uri{host = Host, port = PortInt,
-                                            params = decode_params(Params)};
-                                _ ->
-                                    error
-                            end;
-                        _ ->
-                            case to_integer(Tail, 0, 65535) of
-                                {ok, PortInt} ->
-                                    URI#uri{host = Host, port = PortInt};
-                                _ ->
-                                    error
-                            end
-                    end;
-                <<Host:Pos/binary, $;, Tail/binary>> ->
-                    URI#uri{host = Host, params = decode_params(Tail)}
+    case split(Data, $;, 1) of
+        [_] ->
+            case split(Data, $?, 1) of
+                [HostPort, Tail] ->
+                    Headers = decode_param_hdrs(Tail),
+                    Params = [];
+                [HostPort] ->
+                    Headers = Params = []
+            end;
+        [HostPort, Tail] ->
+            case split(Tail, $?, 1) of
+                [Ps, Hs] ->
+                    Headers = decode_param_hdrs(Hs),
+                    Params = decode_params(Ps);
+                [Ps] ->
+                    Headers = [],
+                    Params = decode_params(Ps)
             end
+    end,
+    case split(HostPort, $:, 1) of
+        [Host, Port] ->
+            case to_integer(Port, 0, 65535) of
+                {ok, PortInt} ->
+                    URI#uri{host = to_lower(Host), port = PortInt,
+                            params = Params, headers = Headers};
+                _ ->
+                    error
+            end;
+        [Host] ->
+            URI#uri{host = to_lower(Host), params = Params, headers = Headers}
     end.
 
 encode_uri(#uri{scheme = Scheme,
@@ -233,7 +276,7 @@ encode_uri(#uri{scheme = Scheme,
                           true ->
                                HostPort
                        end,
-    [Scheme, $:, UserPassHostPort, EncParams].
+    list_to_binary([Scheme, $:, UserPassHostPort, EncParams]).
 
 encode_uri_field({Name, URI, FieldParams}) ->
     NewName = if Name /= <<>> ->
@@ -285,10 +328,9 @@ encode_via(#via{proto = Proto,
 %%% Internal functions
 %%%===================================================================
 decode_start_line(Data) ->
-    WS = binary:compile_pattern(<<" ">>),
-    case binary:split(Data, WS) of
+    case split(Data, wsp, 1) of
         [<<"SIP/", Maj, ".", Min>>, Rest] ->
-            case binary:split(Rest, WS) of
+            case split(Rest, wsp, 1) of
                 [Code, Reason] ->
                     case to_integer(Code, 100, 699) of
                         {ok, N} ->
@@ -300,7 +342,7 @@ decode_start_line(Data) ->
                     {error, bad_start_line}
             end;
         [Method, Rest] ->
-            case binary:split(Rest, WS) of
+            case split(Rest, wsp, 1) of
                 [Head, <<"SIP/", Maj, ".", Min>>] ->
                     case decode_uri(Head) of
                         error ->
@@ -388,7 +430,7 @@ decode_hdr('Content-Length', Val) ->
 decode_hdr('Content-Type', Val) ->
     {'content-type', decode_type_params(Val)};
 decode_hdr(<<"cseq">>, Val) ->
-    [CSeq, Method] = binary:split(Val, <<" ">>),
+    [CSeq, Method] = split(Val, wsp, 1),
     {ok, N} = to_integer(CSeq, 0, unlimited),
     {cseq, N, Method};
 decode_hdr('Date', Val) ->
@@ -506,7 +548,7 @@ decode_hdr('Proxy-Authorization', Val) ->
 decode_hdr(<<"proxy-require">>, Val) ->
     {'proxy-require', split(Val, $,)};
 decode_hdr(<<"rack">>, Val) ->
-    [Num, CSeq, Method] = binary:split(Val, <<" ">>, [global]),
+    [Num, CSeq, Method] = split(Val),
     {ok, NumInt} = to_integer(Num, 0, unlimited),
     {ok, CSeqInt} = to_integer(CSeq, 0, unlimited),
     {rack, {NumInt, CSeqInt, Method}};
@@ -579,7 +621,7 @@ decode_hdr(<<"suppress-if-match">>, Val) ->
 decode_hdr(<<"target-dialog">>, Val) ->
     {'target-dialog', decode_type_params(Val)};
 decode_hdr(<<"timestamp">>, Val) ->
-    {N, M} = case binary:split(Val, [<<$\r>>, <<$\n>>, <<$\t>>, <<$ >>]) of
+    {N, M} = case split(Val, wsp) of
                  [N1, N2] -> {N1, N2};
                  [N1] -> {N1, <<"0">>}
              end,
@@ -601,7 +643,7 @@ decode_hdr('Via', Val) ->
 decode_hdr('Warning', Val) ->
     R = lists:map(
           fun(S) ->
-                  [Code, Agent, Txt] = split(S, $ , 2),
+                  [Code, Agent, Txt] = split(S, wsp, 2),
                   {ok, N} = to_integer(Code, 100, 699),
                   {N, Agent, Txt}
           end, split(Val, $,)),
@@ -864,6 +906,9 @@ encode_params(Params) ->
               <<>>
       end, Params).
 
+decode_param_hdrs(Data) ->
+    decode_params(Data, $&).
+
 decode_params(Data) ->
     decode_params(Data, $;).
 
@@ -890,7 +935,7 @@ decode_params_list(Data) ->
       split(Data, $,)).
 
 decode_type_params(Data) ->
-    case binary:split(Data, <<";">>) of
+    case split(Data, $;, 1) of
         [Type, Params] ->
             {strip_wsp(Type, right), decode_params(Params)};
         [Type] ->
@@ -904,7 +949,7 @@ encode_type_params({Type, Params}) ->
     [Type, encode_params(Params)].
 
 decode_auth(Data) ->
-    [Head, Tail] = binary:split(Data, [<<$\r>>, <<$\n>>, <<$\t>>, <<$ >>]),
+    [Head, Tail] = split(Data, wsp, 1),
     {strip_wsp(Head, right), decode_params(strip_wsp(Tail, left), $,)}.
 
 strip_wsp(Data) ->
@@ -913,9 +958,9 @@ strip_wsp(Data) ->
 strip_wsp(Data, left) ->
     strip_wsp_left(Data);
 strip_wsp(Data, right) ->
-    reverse(strip_wsp_left(reverse(Data)));
+    strip_wsp_right(Data);
 strip_wsp(Data, both) ->
-    strip_wsp(strip_wsp_left(Data), right).
+    strip_wsp_left(strip_wsp_right(Data)).
 
 strip_wsp_left(<<$\r, Rest/binary>>) ->
     strip_wsp_left(Rest);
@@ -928,38 +973,52 @@ strip_wsp_left(<<$ , Rest/binary>>) ->
 strip_wsp_left(Str) ->
     Str.
 
-%% The same as binary:split/2 but takes care of quoted string
+strip_wsp_right(Data) ->
+    reverse(strip_wsp_left(reverse(Data))).
+
+split(Bin) ->
+    split(Bin, wsp).
+
 split(Bin, Chr) ->
     split(Bin, Chr, -1).
 
 split(Bin, Chr, N) ->
-    lists:reverse(split(Bin, <<>>, [], Chr, out, N)).
+    lists:reverse(split(Bin, <<>>, [], Chr, out, N, undefined)).
 
-split(Bin, <<>>, Acc, _, _, 0) ->
-    [Bin|Acc];
-split(<<C, Rest/binary>>, Buf, Acc, Chr, State, N) ->
-    if C == $', State == $' ->
+split(Bin, <<>>, Acc, Chr, _, 0, _) ->
+    add_to_acc(Bin, Acc, Chr);
+split(<<C, Rest/binary>>, Buf, Acc, Chr, in, N, PrevChr) ->
+    if C == $", PrevChr /= $\\ ->
             %% Leaving quoted string
-            split(Rest, <<Buf/binary, $'>>, Acc, Chr, out, N);
-       C == $", State == $" ->
-            %% Leaving quoted string
-            split(Rest, <<Buf/binary, $">>, Acc, Chr, out, N);
-       C == $', State == out ->
-            %% Entering quoted string
-            split(Rest, <<Buf/binary, $'>>, Acc, Chr, $', N);
-       C == $", State == out ->
-            %% Entering quoted string
-            split(Rest, <<Buf/binary, $">>, Acc, Chr, $", N);
-       State /= out ->
-            %% Ignore any other characters in quoted string
-            split(Rest, <<Buf/binary, C>>, Acc, Chr, State, N);
-       C == Chr ->
-            split(Rest, <<>>, [strip_wsp(Buf)|Acc], Chr, out, N-1);
+            split(Rest, <<Buf/binary, $">>, Acc, Chr, out, N, C);
        true ->
-            split(Rest, <<Buf/binary, C>>, Acc, Chr, out, N)
+            %% Ignore any other characters
+            split(Rest, <<Buf/binary, C>>, Acc, Chr, in, N, C)
     end;
-split(<<>>, Buf, Acc, _, _, _) ->
-    [strip_wsp(Buf)|Acc].
+split(<<C, Rest/binary>>, Buf, Acc, Chr, out, N, _) ->
+    if C == $" ->
+            %% Entering quoted string
+            split(Rest, <<Buf/binary, $">>, Acc, Chr, in, N, C);
+       C == Chr ->
+            split(Rest, <<>>, add_to_acc(Buf, Acc, Chr), Chr, out, N-1, C);
+       (Chr == wsp) and
+       ((C == $\r) or (C == $\n) or (C == $\t) or (C == $ )) ->
+            split(Rest, <<>>, add_to_acc(Buf, Acc, Chr), Chr, out, N-1, C);
+       true ->
+            split(Rest, <<Buf/binary, C>>, Acc, Chr, out, N, C)
+    end;
+split(<<>>, _, Acc, _, in, _, _) ->
+    Acc;
+split(<<>>, Buf, Acc, Chr, _, _, _) ->
+    add_to_acc(Buf, Acc, Chr).
+
+add_to_acc(Buf, Acc, Chr) ->
+    case strip_wsp(Buf) of
+        <<>> when Chr == wsp ->
+            Acc;
+        NewBuf ->
+            [NewBuf|Acc]
+    end.
 
 reverse(Bin) ->
     list_to_binary(lists:reverse(binary_to_list(Bin))).
@@ -1004,6 +1063,14 @@ number_to_list(N) ->
             integer_to_list(N)
     end.
 
+str(Bin, Sep) ->
+    case string:str(binary_to_list(Bin), binary_to_list(Sep)) of
+        0 ->
+            nomatch;
+        N ->
+            N-1
+    end.
+
 join([], _Sep) ->
     [];
 join([H|T], Sep) ->
@@ -1034,7 +1101,7 @@ month(10) -> "Oct";
 month(11) -> "Nov";
 month(12) -> "Dec".
 
-msg1() ->
+-define(MSG1,
     <<"OPTIONS sip:xram@zinid.ru:5090 SIP/2.0\r\n"
       "Via: SIP/2.0/UDP 192.168.1.1:9;branch=z9hG4bK.697350a0\r\n"
       "From: sip:sipsak@192.168.1.1:9;tag=721d6a76\r\n"
@@ -1043,10 +1110,10 @@ msg1() ->
       "CSeq: 413528 OPTIONS\r\n"
       "Contact: sip:sipsak@192.168.1.1:9\r\n"
       "Content-Length: 0\r\n"
-      "Max-Forwards: 70\r\n"
-      "User-Agent: sipsak 0.9.6\r\n\r\n">>.
+      "User-Agent: sipsak 0.9.6\r\n"
+      "Max-Forwards: 70\r\n\r\n">>).
 
-msg() ->
+-define(MSG,
     <<"INVITE sips:B@example.com SIP/2.0\r\n"
       "Accept: application/dialog-info+xml\r\n"
       "Accept-Contact: *;methods=\"BYE\";class=\"business\";q=1.0\r\n"
@@ -1176,15 +1243,15 @@ msg() ->
       "WWW-Authenticate: Digest realm=\"atlanta.example.com\", qop=\"auth\",\r\n"
       " nonce=\"84f1c1ae6cbe5ua9c8e88dfa3ecm3459\",\r\n"
       " opaque=\"\", stale=FALSE, algorithm=MD5\r\n"
-      "\r\nSIP body">>.
+      "\r\nSIP body">>).
 
 test() ->
-    io:format("~p~n", [decode(msg())]).
+    io:format("~p~n", [decode(?MSG)]).
 
 test_loop() ->
-    N = 100000,
+    N = 10000,
     eprof:start(),
-    _P = spawn(?MODULE, test_loop, [self(), decode(msg()), N]),
+    _P = spawn(?MODULE, test_loop, [self(), ?MSG, N]),
     %%eprof:start_profiling([_P]),
     receive {ok, T} -> ok end,
     eprof:stop_profiling(),
@@ -1197,5 +1264,5 @@ test_loop(P, Msg, N) ->
 test_loop(P, _, 0, T) ->
     P ! {ok, timer:now_diff(now(), T)};
 test_loop(P, Msg, N, T) ->
-    encode(Msg),
+    decode(Msg),
     test_loop(P, Msg, N-1, T).

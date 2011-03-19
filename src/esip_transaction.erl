@@ -11,7 +11,7 @@
 
 %% API
 -export([start_link/0, process/2, reply/2, cancel/2,
-         request/2, request/3, insert/4, delete/3]).
+         request/2, request/3, insert/4, delete/3, stop/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -101,6 +101,11 @@ cancel(#sip{method = Method, type = request, hdrs = Hdrs}, TU) ->
     end;
 cancel(#trid{type = client, owner = Pid}, TU) ->
     esip_client_transaction:cancel(Pid, TU).
+
+stop(#trid{owner = Pid, type = client}) ->
+    esip_client_transaction:stop(Pid);
+stop(#trid{owner = Pid, type = server}) ->
+    esip_server_transaction:stop(Pid).
 
 insert(Branch, Method, Type, Pid) ->
     ets:update_counter(?MODULE, {transaction_number, Type}, 1),

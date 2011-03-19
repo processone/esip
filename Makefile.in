@@ -10,13 +10,11 @@ ESIPEXAMPLEDIR = $(ESIPDIR)/examples
 INCLUDEDIR = $(ESIPDIR)/include
 PRIVDIR = $(ESIPDIR)/priv
 SODIR = $(PRIVDIR)/lib
-ERL_INTERFACE_DIR = @ERLANG_LIB_DIR_erl_interface@
 CC = @CC@
 CFLAGS = @CFLAGS@
 CPPFLAGS = @CPPFLAGS@
 LDFLAGS = @LDFLAGS@
-ERLANG_CFLAGS = -I $(ERL_INTERFACE_DIR)/include -I @ERLANG_ROOT_DIR@/usr/include
-ERLANG_LIBS = -L$(ERL_INTERFACE_DIR)/lib -lerl_interface -lei
+ERLANG_CFLAGS = -I @ERLANG_ROOT_DIR@/usr/include
 
 # Assume Linux-style dynamic library flags
 DYNAMIC_LIB_CFLAGS = -fpic -shared
@@ -27,13 +25,20 @@ ifeq ($(shell uname),SunOs)
     DYNAMIC_LIB_CFLAGS = -KPIC -G -z text
 endif
 
+all: src esip_codec.so
+
 src: beams
 
 beams:
 	@ERL@ -noinput +B -eval \
 	'case make:all() of up_to_date -> halt(0); error -> halt(1) end.'
 
-all: src
+esip_codec.so: c_src/esip_codec.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) \
+	c_src/esip_codec.c \
+	$(ERLANG_CFLAGS) \
+	-o esip_codec.so \
+	$(DYNAMIC_LIB_CFLAGS)
 
 clean: 
 	rm -rf ebin/*.beam
@@ -57,7 +62,7 @@ install:
 	install -d $(INCLUDEDIR)
 	install -m 644 include/*.hrl $(INCLUDEDIR)
 	install -d $(SODIR)
-#install -m 755 *.so $(SODIR)
+	install -m 755 *.so $(SODIR)
 
 uninstall:
 	rm -rf $(ESIPDIR)
