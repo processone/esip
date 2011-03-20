@@ -32,8 +32,8 @@ id(Type, #sip{hdrs = Hdrs}) ->
     CallID = esip:get_hdr('call-id', Hdrs),
     {_, _, ToParams} = esip:get_hdr(to, Hdrs),
     {_, _, FromParams} = esip:get_hdr(from, Hdrs),
-    ToTag = esip:get_param(<<"tag">>, ToParams),
-    FromTag = esip:get_param(<<"tag">>, FromParams),
+    ToTag = esip:to_lower(esip:get_param(<<"tag">>, ToParams)),
+    FromTag = esip:to_lower(esip:get_param(<<"tag">>, FromParams)),
     case Type of
         uac ->
             #dialog_id{'call-id' = CallID,
@@ -77,8 +77,8 @@ open(#sip{type = request, uri = URI, hdrs = ReqHdrs},
                              local_uri = LocalURI,
                              state = state(Status)},
             DialogID = #dialog_id{'call-id' = CallID,
-                                  remote_tag = RemoteTag,
-                                  local_tag = LocalTag},
+                                  remote_tag = esip:to_lower(RemoteTag),
+                                  local_tag = esip:to_lower(LocalTag)},
             case call({open, DialogID, Dialog, TU}) of
                 ok ->
                     {ok, DialogID};
@@ -111,8 +111,8 @@ open(#sip{type = request, uri = URI, hdrs = Hdrs}, LocalTag, State, TU) ->
                              local_uri = LocalURI,
                              state = State},
             DialogID = #dialog_id{'call-id' = CallID,
-                                  remote_tag = RemoteTag,
-                                  local_tag = LocalTag},
+                                  remote_tag = esip:to_lower(RemoteTag),
+                                  local_tag = esip:to_lower(LocalTag)},
             case call({open, DialogID, Dialog, TU}) of
                 ok ->
                     {ok, DialogID};

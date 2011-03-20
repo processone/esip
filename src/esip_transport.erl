@@ -573,7 +573,7 @@ resolve(#via{transport = ViaTransport} = Via, VHost) ->
     end.
 
 do_resolve(#uri{host = Host, port = Port, params = Params}, SupportedTransports) ->
-    case esip:get_param(<<"transport">>, Params) of
+    case esip:to_lower(esip:get_param(<<"transport">>, Params)) of
         <<>> ->
             [FallbackTransport|_] = lists:reverse(SupportedTransports),
             case host_to_ip(Host) of

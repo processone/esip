@@ -211,7 +211,7 @@ make_branch(Hdrs) ->
         [] ->
             make_branch();
         [Via|_] ->
-            TopBranch = get_param(<<"branch">>, Via#via.params),
+            TopBranch = to_lower(get_param(<<"branch">>, Via#via.params)),
             Cookie = atom_to_list(erlang:get_cookie()),
             ID = hex_encode(erlang:md5([TopBranch, Cookie])),
             iolist_to_binary(["z9hG4bK-", ID])
@@ -344,19 +344,38 @@ get_param(Param, Params, Default) ->
         {value, {_, Val}} ->
             Val;
         false ->
-            Default
+            get_param_lower(Param, Params, Default)
     end.
 
+get_param_lower(Param, [{P, Val}|Tail], Default) ->
+    case esip_codec:to_lower(P) of
+        Param ->
+            Val;
+        _ ->
+            get_param_lower(Param, Tail, Default)
+    end;
+get_param_lower(_, [], Default) ->
+    Default.
+
 has_param(Param, Params) ->
-    case lists:keysearch(Param, 1, Params) of
-        {value, _} ->
-            true;
-        false ->
-            false
+    case get_param(Param, Params, undefined) of
+        undefined ->
+            false;
+        _ ->
+            true
     end.
 
 set_param(Param, Val, Params) ->
-    set_hdr(Param, Val, Params).
+    Res = lists:foldl(
+            fun({P, V}, Acc) ->
+                    case esip_codec:to_lower(P) of
+                        Param ->
+                            Acc;
+                        _ ->
+                            [{P, V}|Acc]
+                    end
+            end, [], Params),
+    lists:reverse([{Param, Val}|Res]).
 
 get_branch(Hdrs) ->
     [Via|_] = get_hdr(via, Hdrs),
@@ -835,19 +854,21 @@ md5_digest(Data) ->
 
 compute_digest(Nonce, CNonce, NC, QOP, Algo, Realm,
                URI, Method, Body, Username, Password) ->
-    A1 = if Algo == <<"MD5">>; Algo == <<>> ->
+    AlgoL = to_lower(Algo),
+    QOPL = to_lower(QOP),
+    A1 = if AlgoL == <<"md5">>; AlgoL == <<>> ->
                  [unquote(Username), $:, unquote(Realm), $:, Password];
             true ->
                  [md5_digest([unquote(Username), $:,
                               unquote(Realm), $:, Password]),
                   $:, unquote(Nonce), $:, unquote(CNonce)]
          end,
-    A2 = if QOP == <<"auth">>; QOP == <<>> ->
+    A2 = if QOPL == <<"auth">>; QOPL == <<>> ->
                  [Method, $:, unquote(URI)];
             true ->
                  [Method, $:, unquote(URI), $:, md5_digest(Body)]
          end,
-    if QOP == <<"auth">>; QOP == <<"auth-int">> ->
+    if QOPL == <<"auth">>; QOPL == <<"auth-int">> ->
             md5_digest(
               [md5_digest(A1),
                $:, unquote(Nonce),

@@ -153,9 +153,9 @@ lookup(TransactionKey) ->
     end.
 
 transaction_key(Branch, <<"CANCEL">>, Type) ->
-    {Branch, cancel, Type};
+    {esip:to_lower(Branch), cancel, Type};
 transaction_key(Branch, _Method, Type) ->
-    {Branch, Type}.
+    {esip:to_lower(Branch), Type}.
 
 pass_to_core(Core, Req) ->
     case Core of
