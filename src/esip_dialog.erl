@@ -29,7 +29,7 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 id(Type, #sip{hdrs = Hdrs}) ->
-    CallID = esip:get_hdr('call-id', Hdrs),
+    CallID = esip:to_lower(esip:get_hdr('call-id', Hdrs)),
     {_, _, ToParams} = esip:get_hdr(to, Hdrs),
     {_, _, FromParams} = esip:get_hdr(from, Hdrs),
     ToTag = esip:to_lower(esip:get_param(<<"tag">>, ToParams)),
@@ -76,7 +76,7 @@ open(#sip{type = request, uri = URI, hdrs = ReqHdrs},
                              remote_uri = RemoteURI,
                              local_uri = LocalURI,
                              state = state(Status)},
-            DialogID = #dialog_id{'call-id' = CallID,
+            DialogID = #dialog_id{'call-id' = esip:to_lower(CallID),
                                   remote_tag = esip:to_lower(RemoteTag),
                                   local_tag = esip:to_lower(LocalTag)},
             case call({open, DialogID, Dialog, TU}) of
@@ -110,7 +110,7 @@ open(#sip{type = request, uri = URI, hdrs = Hdrs}, LocalTag, State, TU) ->
                              remote_uri = RemoteURI,
                              local_uri = LocalURI,
                              state = State},
-            DialogID = #dialog_id{'call-id' = CallID,
+            DialogID = #dialog_id{'call-id' = esip:to_lower(CallID),
                                   remote_tag = esip:to_lower(RemoteTag),
                                   local_tag = esip:to_lower(LocalTag)},
             case call({open, DialogID, Dialog, TU}) of
