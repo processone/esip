@@ -1058,7 +1058,7 @@ atom_to_binary1(Atom) ->
 
 number_to_list(N) ->
     if is_float(N) ->
-            io_lib:format("~.f", [N]);
+            io_lib:format("~.g", [N]);
        is_integer(N) ->
             integer_to_list(N)
     end.
