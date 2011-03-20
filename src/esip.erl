@@ -487,8 +487,8 @@ make_auth({Type, Params}, Method, Body, OrigURI, Username, Password) ->
             end] ++ OpaqueParam}.
 
 check_auth({Type, Params}, Method, Body, Password) ->
-    case Type of
-        <<"Digest">> ->
+    case to_lower(Type) of
+        <<"digest">> ->
             NewMethod = case Method of
                             <<"ACK">> -> <<"INVITE">>;
                             _ -> Method
