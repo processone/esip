@@ -22,7 +22,10 @@
          encode/1,
          to_lower/1,
          to_integer/3,
-         str/2]).
+         str/2,
+         escape/1,
+         unescape/1,
+         to_hex/1]).
 
 %% Test
 -export([test/0, test_loop/0, test_loop/3, test_loop/4]).
@@ -323,6 +326,64 @@ encode_via(#via{proto = Proto,
                        Host
                end,
     [Proto, $/, Maj+48, $., Min+48, $/, Transport, $ , HostPort, EncParams].
+
+escape(Bin) ->
+    list_to_binary(
+      [case S of
+           $; -> escape_chr(S);
+           $/ -> escape_chr(S);
+           $? -> escape_chr(S);
+           $: -> escape_chr(S);
+           $@ -> escape_chr(S);
+           $& -> escape_chr(S);
+           $= -> escape_chr(S);
+           $+ -> escape_chr(S);
+           $$ -> escape_chr(S);
+           $, -> escape_chr(S);
+           $< -> escape_chr(S);
+           $> -> escape_chr(S);
+           $# -> escape_chr(S);
+           $% -> escape_chr(S);
+           $" -> escape_chr(S);
+           ${ -> escape_chr(S);
+           $} -> escape_chr(S);
+           $| -> escape_chr(S);
+           $\\ -> escape_chr(S);
+           $^ -> escape_chr(S);
+           $[ -> escape_chr(S);
+           $] -> escape_chr(S);
+           $` -> escape_chr(S);
+           _ when S > 16#20, S < 16#7f ->
+               S;
+           _ ->
+               escape_chr(S)
+       end || S <- binary_to_list(Bin)]).
+
+unescape(Bin) ->
+    list_to_binary(unescape1(binary_to_list(Bin))).
+
+unescape1([$%, A, B|T]) ->
+    case catch erlang:list_to_integer([A,B], 16) of
+        {'EXIT', _} ->
+            [$%|unescape1([A,B|T])];
+        Int ->
+            [Int|unescape1(T)]
+    end;
+unescape1([C|T]) ->
+    [C|unescape1(T)];
+unescape1([]) ->
+    [].
+
+to_hex(X) ->
+    Hi = case X div 16 of
+             N1 when N1 < 10 -> $0 + N1;
+             N1 -> $W + N1
+         end,
+    Lo = case X rem 16 of
+             N2 when N2 < 10 -> $0 + N2;
+             N2 -> $W + N2
+         end,
+    <<Hi, Lo>>.
 
 %%%===================================================================
 %%% Internal functions
@@ -1075,6 +1136,9 @@ join([], _Sep) ->
     [];
 join([H|T], Sep) ->
     [H, [[Sep, X] || X <- T]].
+
+escape_chr(Chr) ->
+    [$%, to_hex(Chr)].
 
 %% day
 

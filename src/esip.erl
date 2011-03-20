@@ -32,6 +32,7 @@
          encode_uri/1,
          encode_uri_field/1,
          error_status/1,
+         escape/1,
          filter_hdrs/2,
          get_branch/1,
          get_config/0,
@@ -81,6 +82,7 @@
          timer2/0,
          timer4/0,
          to_lower/1,
+         unescape/1,
          unquote/1,
          warning/1]).
 
@@ -385,6 +387,12 @@ is_my_via(#via{transport = Transport, host = Host, port = Port}) ->
     esip_transport:have_route(
       esip_transport:via_transport_to_atom(Transport), Host, Port).
 
+escape(Bin) ->
+    esip_codec:escape(Bin).
+
+unescape(Bin) ->
+    esip_codec:unescape(Bin).
+
 make_contact() ->
     esip_transport:make_contact().
 
@@ -513,7 +521,7 @@ make_hexstr(N) ->
     hex_encode(crypto:rand_bytes(N)).
 
 hex_encode(Data) ->
-    << <<(to_hex(X))/binary>> || <<X>> <= Data >>.
+    << <<(esip_codec:to_hex(X))/binary>> || <<X>> <= Data >>.
 
 to_lower(Bin) ->
     esip_codec:to_lower(Bin).
@@ -837,17 +845,6 @@ unquote(Val) ->
 
 quote(Val) ->
     <<$", Val/binary, $">>.
-
-to_hex(X) ->
-    Hi = case X div 16 of
-             N1 when N1 < 10 -> $0 + N1;
-             N1 -> $W + N1
-         end,
-    Lo = case X rem 16 of
-             N2 when N2 < 10 -> $0 + N2;
-             N2 -> $W + N2
-         end,
-    <<Hi, Lo>>.
 
 md5_digest(Data) ->
     hex_encode(erlang:md5(Data)).
