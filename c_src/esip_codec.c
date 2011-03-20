@@ -87,40 +87,44 @@ static void buf_add_str(ErlNifEnv* env, struct buf *rbuf, char *data, int len)
 static ERL_NIF_TERM to_lower(ErlNifEnv* env, int argc,
 			     const ERL_NIF_TERM argv[])
 {
-  ErlNifBinary tmp;
+  ErlNifBinary input, output;
   int i;
   
   if (argc == 1) {
-    if (enif_inspect_iolist_as_binary(env, argv[0], &tmp)) {
-      if (tmp.size > 0) {
-	for (i=0; i<tmp.size; i++) {
-	  tmp.data[i] = tolower(tmp.data[i]);
+    if (enif_inspect_iolist_as_binary(env, argv[0], &input)) {
+      if (ENIF_ALLOC_BINARY(input.size, &output)) {
+	if (input.size > 0) {
+	  for (i=0; i<input.size; i++) {
+	    output.data[i] = tolower(input.data[i]);
+	  };
 	};
+	return enif_make_binary(env, &output);
       };
-      return enif_make_binary(env, &tmp);
     };
   };
-
+  
   return enif_make_badarg(env);
 }
 
 static ERL_NIF_TERM to_upper(ErlNifEnv* env, int argc,
 			     const ERL_NIF_TERM argv[])
 {
-  ErlNifBinary tmp;
+  ErlNifBinary input, output;
   int i;
   
   if (argc == 1) {
-    if (enif_inspect_iolist_as_binary(env, argv[0], &tmp)) {
-      if (tmp.size > 0) {
-	for (i=0; i<tmp.size; i++) {
-	  tmp.data[i] = toupper(tmp.data[i]);
+    if (enif_inspect_iolist_as_binary(env, argv[0], &input)) {
+      if (ENIF_ALLOC_BINARY(input.size, &output)) {
+	if (input.size > 0) {
+	  for (i=0; i<input.size; i++) {
+	    output.data[i] = toupper(input.data[i]);
+	  };
 	};
+	return enif_make_binary(env, &output);
       };
-      return enif_make_binary(env, &tmp);
     };
   };
-
+  
   return enif_make_badarg(env);
 }
 
