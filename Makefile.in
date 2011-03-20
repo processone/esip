@@ -52,6 +52,7 @@ distclean: clean
 	rm -f config.status
 	rm -rf *.log
 	rm -f Makefile
+	rm -f Emakefile
 	rm -f ebin/esip.app
 
 install:
