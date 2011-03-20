@@ -203,6 +203,36 @@ static ERL_NIF_TERM strip_wsp_right(ErlNifEnv* env, int argc,
   return enif_make_badarg(env);
 }
 
+static ERL_NIF_TERM strip_wsp(ErlNifEnv* env, int argc,
+			      const ERL_NIF_TERM argv[])
+{
+  ErlNifBinary input, output;
+  int start = 0, end;
+  unsigned char c;
+
+  if (argc == 1) {
+    if (enif_inspect_iolist_as_binary(env, argv[0], &input)) {
+      while (start < input.size) {
+	c = input.data[start];
+	if (!isspace(c)) break;
+	start++;
+      };
+      end = input.size - 1;
+      while (end >= start) {
+	c = input.data[end];
+	if (!isspace(c)) break;
+	end--;
+      };
+      if (ENIF_ALLOC_BINARY(end - start + 1, &output)) {
+	memcpy(output.data, input.data + start, end - start + 1);
+	return enif_make_binary(env, &output);
+      };
+    };
+  };
+
+  return enif_make_badarg(env);
+}
+
 static ERL_NIF_TERM str(ErlNifEnv* env, int argc,
 			const ERL_NIF_TERM argv[])
 {
@@ -347,6 +377,7 @@ static ErlNifFunc nif_funcs[] =
     {"to_lower", 1, to_lower},
     {"to_upper", 1, to_upper},
     {"reverse", 1, reverse},
+    {"strip_wsp", 1, strip_wsp},
     {"strip_wsp_left", 1, strip_wsp_left},
     {"strip_wsp_right", 1, strip_wsp_right},
     {"str", 2, str},
