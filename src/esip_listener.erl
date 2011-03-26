@@ -89,13 +89,23 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 start_tcp_listener(Port, Opts, Owner) ->
+    Version = erlang:system_info(version),
+    NewOpts = if Version >= "5.7" ->
+                      %% OTP-6684 and OTP-7731
+                      [{send_timeout, ?TCP_SEND_TIMEOUT},
+                       {send_timeout_close, true}|Opts];
+                 Version >= "5.5.5" ->
+                      %% OTP-6684 only
+                      [{send_timeout, ?TCP_SEND_TIMEOUT}|Opts];
+                 true ->
+                      Opts
+              end,
     case gen_tcp:listen(Port, [binary,
                                {packet, 0},
                                {active, false},
                                {reuseaddr, true},
                                {nodelay, true},
-                               {send_timeout, ?TCP_SEND_TIMEOUT},
-                               {keepalive, true}|Opts]) of
+                               {keepalive, true}|NewOpts]) of
         {ok, ListenSocket} ->
             Owner ! {self(), ok},
             accept(ListenSocket);
