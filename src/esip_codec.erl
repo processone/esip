@@ -265,8 +265,14 @@ encode_uri(#uri{scheme = Scheme,
                 host = Host,
                 port = Port,
                 params = Params,
-                headers = _Hdrs}) ->
+                headers = Hdrs}) ->
     EncParams = encode_params(Params),
+    EncHdrs = case Hdrs of
+                  [_|_] ->
+                      [$?, join_params(Hdrs, "&")];
+                  _ ->
+                      ""
+              end,
     HostPort = if Port >= 0, Port < 65536 ->
                        [Host, $:, integer_to_list(Port)];
                   true ->
@@ -279,7 +285,7 @@ encode_uri(#uri{scheme = Scheme,
                           true ->
                                HostPort
                        end,
-    list_to_binary([Scheme, $:, UserPassHostPort, EncParams]).
+    list_to_binary([Scheme, $:, UserPassHostPort, EncParams, EncHdrs]).
 
 encode_uri_field({Name, URI, FieldParams}) ->
     NewName = if Name /= <<>> ->
