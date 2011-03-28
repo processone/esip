@@ -20,7 +20,7 @@
               host = <<>>,
               port = undefined,
               params = [],
-              headers = []}).
+              hdrs = []}).
 
 -record(via, {proto = <<"SIP">>,
               version = {2,0},

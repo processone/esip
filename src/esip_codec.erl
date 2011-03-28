@@ -251,12 +251,12 @@ decode_uri_host(Data, URI) ->
             case to_integer(Port, 0, 65535) of
                 {ok, PortInt} ->
                     URI#uri{host = to_lower(Host), port = PortInt,
-                            params = Params, headers = Headers};
+                            params = Params, hdrs = Headers};
                 _ ->
                     error
             end;
         [Host] ->
-            URI#uri{host = to_lower(Host), params = Params, headers = Headers}
+            URI#uri{host = to_lower(Host), params = Params, hdrs = Headers}
     end.
 
 encode_uri(#uri{scheme = Scheme,
@@ -265,7 +265,7 @@ encode_uri(#uri{scheme = Scheme,
                 host = Host,
                 port = Port,
                 params = Params,
-                headers = Hdrs}) ->
+                hdrs = Hdrs}) ->
     EncParams = encode_params(Params),
     EncHdrs = case Hdrs of
                   [_|_] ->
