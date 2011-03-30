@@ -36,7 +36,7 @@ process(SIPSock, #sip{method = Method, hdrs = Hdrs, type = request} = Req) ->
         error when Method == <<"ACK">> ->
             case esip_dialog:lookup(esip_dialog:id(uas, Req)) of
                 {ok, Core, _} ->
-                    pass_to_core(Core, Req);
+                    pass_to_core(Core, Req, SIPSock);
                 _Err ->
                     esip:callback(request, [Req, SIPSock])
             end;
@@ -157,12 +157,12 @@ transaction_key(Branch, <<"CANCEL">>, Type) ->
 transaction_key(Branch, _Method, Type) ->
     {esip:to_lower(Branch), Type}.
 
-pass_to_core(Core, Req) ->
+pass_to_core(Core, Req, SIPSock) ->
     case Core of
         F when is_function(F) ->
-            F(Req, undefined);
+            F(Req, SIPSock, undefined);
         {M, F, A} ->
-            apply(M, F, [Req, undefined | A])
+            apply(M, F, [Req, SIPSock, undefined | A])
     end.
 
 start_server_transaction(SIPSock, Req) ->
