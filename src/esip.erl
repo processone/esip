@@ -27,6 +27,7 @@
          dialog_id/2,
          dialog_request/2,
          dialog_request/3,
+         dialog_request/4,
          dialog_send/2,
          encode/1,
          encode_uri/1,
