@@ -41,7 +41,7 @@ process(SIPSock, #sip{method = Method, hdrs = Hdrs, type = request} = Req) ->
                     esip:callback(request, [Req, SIPSock])
             end;
 	error when Method == <<"CANCEL">> ->
-            case lookup({Branch, server}) of
+            case lookup({esip:to_lower(Branch), server}) of
                 {ok, Pid} ->
                     esip_server_transaction:route(Pid, Req),
                     start_server_transaction(SIPSock, Req);
