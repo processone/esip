@@ -228,9 +228,15 @@ make_cseq() ->
     gen_server:call(?MODULE, make_cseq).
 
 make_hdrs() ->
-    [{'cseq', make_cseq()},
-     {'max-forwards', get_config_value(max_forwards)},
-     {'call-id', make_callid()}].
+    Hdrs = [{'cseq', make_cseq()},
+            {'max-forwards', get_config_value(max_forwards)},
+            {'call-id', make_callid()}],
+    case get_config_value(software) of
+        undefined ->
+            Hdrs;
+        Software ->
+            [{'user-agent', Software}|Hdrs]
+    end.
 
 get_local_tag(TrID) ->
     esip_lib:get_local_tag(TrID).
@@ -441,7 +447,13 @@ make_response(#sip{hdrs = ReqHdrs,
                    true ->
                         Method
                 end,
-    Resp#sip{method = NewMethod, hdrs = NewNeedHdrs ++ RespHdrs}.
+    ResultHdrs = case get_config_value(software) of
+                     undefined ->
+                         NewNeedHdrs ++ RespHdrs;
+                     Software ->
+                         NewNeedHdrs ++ [{'server', Software}|RespHdrs]
+                 end,
+    Resp#sip{method = NewMethod, hdrs = ResultHdrs}.
 
 make_auth({Type, Params}, Method, Body, OrigURI, Username, Password) ->
     Nonce = esip:get_param(<<"nonce">>, Params),
@@ -786,10 +798,17 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 default_config() ->
+    Software = case catch application:get_key(esip, vsn) of
+                   {ok, [_|_] = Ver} ->
+                       list_to_binary(["esip/", Ver]);
+                   _ ->
+                       <<"esip">>
+               end,
     [{max_forwards, 70},
      {timer1, 500},
      {timer2, 4000},
      {timer4, 5000},
+     {software, Software},
      {max_msg_size, 128*1024}].
 
 set_config(Opts) ->
