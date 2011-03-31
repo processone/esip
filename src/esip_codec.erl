@@ -441,7 +441,7 @@ decode_hdrs(Data, {Method, Acc}) ->
                                end,
                     decode_hdrs(Rest, {Method, [{HdrName1, Value}|Acc]});
                 {cseq, CSeq, M} ->
-                    decode_hdrs(Rest, {M, [{cseq, CSeq}|Acc]});
+                    decode_hdrs(Rest, {M, [{'cseq', CSeq}|Acc]});
                 Result ->
                     decode_hdrs(Rest, {Method, [Result|Acc]})
             end;
@@ -454,7 +454,7 @@ decode_hdrs(Data, {Method, Acc}) ->
     end.
 
 decode_hdr('Accept', Val) ->
-    {accept, decode_params_list(Val)};
+    {'accept', decode_params_list(Val)};
 decode_hdr(<<"accept-contact">>, Val) ->
     {'accept-contact', decode_params_list(Val)};
 decode_hdr('Accept-Encoding', Val) ->
@@ -467,7 +467,7 @@ decode_hdr(<<"alert-info">>, Val) ->
     %%TODO
     {'alert-info', Val};
 decode_hdr('Allow', Val) ->
-    {allow, split(Val, $,)};
+    {'allow', split(Val, $,)};
 decode_hdr(<<"allow-events">>, Val) ->
     {'allow-events', decode_params_list(Val)};
 decode_hdr(<<"answer-mode">>, Val) ->
@@ -482,9 +482,9 @@ decode_hdr(<<"call-info">>, Val) ->
     %%TODO
     {'call-info', Val};
 decode_hdr(<<"contact">>, <<"*">>) ->
-    {contact, <<"*">>};
+    {'contact', <<"*">>};
 decode_hdr(<<"contact">>, Val) ->
-    {contact, [_|_] = decode_uri_field(Val)};
+    {'contact', [_|_] = decode_uri_field(Val)};
 decode_hdr(<<"content-disposition">>, Val) ->
     {'content-disposition', decode_type_params(Val)};
 decode_hdr('Content-Encoding', Val) ->
@@ -499,24 +499,24 @@ decode_hdr('Content-Type', Val) ->
 decode_hdr(<<"cseq">>, Val) ->
     [CSeq, Method] = split(Val, wsp, 1),
     {ok, N} = to_integer(CSeq, 0, unlimited),
-    {cseq, N, Method};
+    {'cseq', N, Method};
 decode_hdr('Date', Val) ->
     {_, _} = Date = httpd_util:convert_request_date(binary_to_list(Val)),
-    {date, Date};
+    {'date', Date};
 decode_hdr(<<"error-info">>, Val) ->
     %%TODO
     {'error-info', Val};
 decode_hdr(<<"event">>, Val) ->
-    {event, decode_type_params(Val)};
+    {'event', decode_type_params(Val)};
 decode_hdr('Expires', Val) ->
     {ok, N} = to_integer(Val, 0, unlimited),
-    {expires, N};
+    {'expires', N};
 decode_hdr(<<"flow-timer">>, Val) ->
     {ok, N} = to_integer(Val, 0, unlimited),
     {'flow-timer', N};
 decode_hdr('From', Val) ->
     [URI|_] = decode_uri_field(Val),
-    {from, URI};
+    {'from', URI};
 decode_hdr(<<"history-info">>, Val) ->
     {'history-info', [_|_] = decode_uri_field(Val)};
 decode_hdr(<<"identity">>, Val) ->
@@ -529,7 +529,7 @@ decode_hdr(<<"info-package">>, Val) ->
 decode_hdr(<<"in-reply-to">>, Val) ->
     {'in-reply-to', split(Val, $,)};
 decode_hdr(<<"join">>, Val) ->
-    {join, decode_params_list(Val)};
+    {'join', decode_params_list(Val)};
 decode_hdr(<<"max-breadth">>, Val) ->
     {ok, N} = to_integer(Val, 0, unlimited),
     {'max-breadth', N};
@@ -547,7 +547,7 @@ decode_hdr(<<"min-se">>, Val) ->
     {ok, N} = to_integer(Delta, 0, unlimited),
     {'min-se', {N, Params}};
 decode_hdr(<<"organization">>, Val) ->
-    {organization, Val};
+    {'organization', Val};
 decode_hdr(<<"p-access-network-info">>, Val) ->
     {'p-access-network-info', decode_type_params(Val)};
 decode_hdr(<<"p-answer-state">>, Val) ->
@@ -599,13 +599,13 @@ decode_hdr(<<"p-user-database">>, Val) ->
 decode_hdr(<<"p-visited-network-id">>, Val) ->
     {'p-visited-network-id', split(Val, $,)};
 decode_hdr(<<"path">>, Val) ->
-    {path, [_|_] = decode_uri_field(Val)};
+    {'path', [_|_] = decode_uri_field(Val)};
 decode_hdr(<<"permission-missing">>, Val) ->
     {'permission-missing', [_|_] = decode_uri_field(Val)};
 decode_hdr(<<"priority">>, Val) ->
-    {priority, Val};
+    {'priority', Val};
 decode_hdr(<<"privacy">>, Val) ->
-    {privacy, split(Val, $;)};
+    {'privacy', split(Val, $;)};
 decode_hdr(<<"priv-answer-mode">>, Val) ->
     {'priv-answer-mode', split(Val, $,)};
 decode_hdr('Proxy-Authenticate', Val) ->
@@ -618,9 +618,9 @@ decode_hdr(<<"rack">>, Val) ->
     [Num, CSeq, Method] = split(Val),
     {ok, NumInt} = to_integer(Num, 0, unlimited),
     {ok, CSeqInt} = to_integer(CSeq, 0, unlimited),
-    {rack, {NumInt, CSeqInt, Method}};
+    {'rack', {NumInt, CSeqInt, Method}};
 decode_hdr(<<"reason">>, Val) ->
-    {reason, decode_params_list(Val)};
+    {'reason', decode_params_list(Val)};
 decode_hdr(<<"record-route">>, Val) ->
     {'record-route', [_|_] = decode_uri_field(Val)};
 decode_hdr(<<"recv-info">>, Val) ->
@@ -640,14 +640,14 @@ decode_hdr(<<"referred-by">>, Val) ->
 decode_hdr(<<"reject-contact">>, Val) ->
     {'reject-contact', decode_params_list(Val)};
 decode_hdr(<<"replaces">>, Val) ->
-    {replaces, decode_type_params(Val)};
+    {'replaces', decode_type_params(Val)};
 decode_hdr(<<"reply-to">>, Val) ->
     [URI] = decode_uri_field(Val),
     {'reply-to', URI};
 decode_hdr(<<"request-disposition">>, Val) ->
     {'request-disposition', split(Val, $,)};
 decode_hdr(<<"require">>, Val) ->
-    {require, split(Val, $,)};
+    {'require', split(Val, $,)};
 decode_hdr(<<"resource-priority">>, Val) ->
     {'resource-priority', split(Val, $,)};
 decode_hdr('Retry-After', Val) ->
@@ -655,10 +655,10 @@ decode_hdr('Retry-After', Val) ->
     {ok, N} = to_integer(Delta, 0, unlimited),
     {'retry-after', {N, Params}};
 decode_hdr(<<"route">>, Val) ->
-    {route, [_|_] = decode_uri_field(Val)};
+    {'route', [_|_] = decode_uri_field(Val)};
 decode_hdr(<<"rseq">>, Val) ->
     {ok, N} = to_integer(Val, 0, unlimited),
-    {rseq, N};
+    {'rseq', N};
 decode_hdr(<<"security-client">>, Val) ->
     {'security-client', decode_params_list(Val)};
 decode_hdr(<<"security-server">>, Val) ->
@@ -666,7 +666,7 @@ decode_hdr(<<"security-server">>, Val) ->
 decode_hdr(<<"security-verify">>, Val) ->
     {'security-verify', decode_params_list(Val)};
 decode_hdr('Server', Val) ->
-    {server, Val};
+    {'server', Val};
 decode_hdr(<<"service-route">>, Val) ->
     {'service-route', [_|_] = decode_uri_field(Val)};
 decode_hdr(<<"session-expires">>, Val) ->
@@ -678,11 +678,11 @@ decode_hdr(<<"sip-etag">>, Val) ->
 decode_hdr(<<"sip-if-match">>, Val) ->
     {'sip-if-match', Val};
 decode_hdr(<<"subject">>, Val) ->
-    {subject, Val};
+    {'subject', Val};
 decode_hdr(<<"subscription-state">>, Val) ->
     {'subscription-state', decode_type_params(Val)};
 decode_hdr(<<"supported">>, Val) ->
-    {supported, split(Val, $,)};
+    {'supported', split(Val, $,)};
 decode_hdr(<<"suppress-if-match">>, Val) ->
     {'suppress-if-match', Val};
 decode_hdr(<<"target-dialog">>, Val) ->
@@ -694,19 +694,19 @@ decode_hdr(<<"timestamp">>, Val) ->
              end,
     {ok, Num1} = to_float(N, 0, unlimited),
     {ok, Num2} = to_float(M, 0, unlimited),
-    {timestamp, {Num1, Num2}};
+    {'timestamp', {Num1, Num2}};
 decode_hdr(<<"to">>, Val) ->
     [URI] = decode_uri_field(Val),
-    {to, URI};
+    {'to', URI};
 decode_hdr(<<"trigger-consent">>, Val) ->
     %%TODO
     {'trigger-consent', Val};
 decode_hdr(<<"unsupported">>, Val) ->
-    {unsupported, split(Val, $,)};
+    {'unsupported', split(Val, $,)};
 decode_hdr('User-Agent', Val) ->
     {'user-agent', Val};
 decode_hdr('Via', Val) ->
-    {via, decode_via(Val)};
+    {'via', decode_via(Val)};
 decode_hdr('Warning', Val) ->
     R = lists:map(
           fun(S) ->
@@ -714,7 +714,7 @@ decode_hdr('Warning', Val) ->
                   {ok, N} = to_integer(Code, 100, 699),
                   {N, Agent, Txt}
           end, split(Val, $,)),
-    {warning, R};
+    {'warning', R};
 decode_hdr('Www-Authenticate', Val) ->
     {'www-authenticate', decode_auth(Val)};
 decode_hdr(<<"a">>, Val) ->
@@ -768,7 +768,7 @@ encode_hdrs(Hdrs, Method) ->
               [encode_hdr(K, V, Method), $\r, $\n]
       end, Hdrs).
 
-encode_hdr(accept, Val, _) ->
+encode_hdr('accept', Val, _) ->
     [<<"Accept: ">>, encode_params_list(Val)];
 encode_hdr('accept-contact', Val, _) ->
     [<<"Accept-Contact: ">>, encode_params_list(Val)];
@@ -781,7 +781,7 @@ encode_hdr('accept-resource-priority', Val, _) ->
 encode_hdr('alert-info', Val, _) ->
     %%TODO
     [<<"Alert-Info: ">>, Val];
-encode_hdr(allow, Val, _) ->
+encode_hdr('allow', Val, _) ->
     [<<"Allow: ">>, join(Val, ", ")];
 encode_hdr('allow-events', Val, _) ->
     [<<"Allow-Events: ">>, encode_params_list(Val)];
@@ -810,9 +810,9 @@ encode_hdr('content-length', Val, _) ->
     [<<"Content-Length: ">>, integer_to_list(Val)];
 encode_hdr('content-type', Val, _) ->
     [<<"Content-Type: ">>, encode_type_params(Val)];
-encode_hdr(cseq, Val, Method) ->
+encode_hdr('cseq', Val, Method) ->
     [<<"CSeq: ">>, integer_to_list(Val), $ , Method];
-encode_hdr(date, {{YYYY,MM,DD},{Hour,Min,Sec}}, _) ->
+encode_hdr('date', {{YYYY,MM,DD},{Hour,Min,Sec}}, _) ->
     DayNumber = calendar:day_of_the_week({YYYY,MM,DD}),
     Val = io_lib:format("~s, ~2.2.0w ~3.s ~4.4.0w ~2.2.0w:~2.2.0w:~2.2.0w GMT",
                         [day(DayNumber),DD,month(MM),YYYY,Hour,Min,Sec]),
@@ -820,17 +820,17 @@ encode_hdr(date, {{YYYY,MM,DD},{Hour,Min,Sec}}, _) ->
 encode_hdr('error-info', Val, _) ->
     %%TODO
     [<<"Error-Info: ">>, Val];
-encode_hdr(event, Val, _) ->
+encode_hdr('event', Val, _) ->
     [<<"Event: ">>, encode_type_params(Val)];
-encode_hdr(expires, Val, _) ->
+encode_hdr('expires', Val, _) ->
     [<<"Expires: ">>, integer_to_list(Val)];
 encode_hdr('flow-timer', Val, _) ->
     [<<"Flow-Timer: ">>, integer_to_list(Val)];
-encode_hdr(from, Val, _) ->
+encode_hdr('from', Val, _) ->
     [<<"From: ">>, encode_uri_field(Val)];
 encode_hdr('history-info', Val, _) ->
     [<<"History-Info: ">>, join([encode_uri_field(U) || U <- Val], ", ")];
-encode_hdr(identity, Val, _) ->
+encode_hdr('identity', Val, _) ->
     [<<"Identity: ">>, Val];
 encode_hdr('identity-info', Val, _) ->
     %%TODO
@@ -839,7 +839,7 @@ encode_hdr('info-package', Val, _) ->
     [<<"Info-Package: ">>, encode_params_list(Val)];
 encode_hdr('in-reply-to', Val, _) ->
     [<<"In-Reply-To: ">>, join(Val, ", ")];
-encode_hdr(join, Val, _) ->
+encode_hdr('join', Val, _) ->
     [<<"Join: ">>, encode_params_list(Val)];
 encode_hdr('max-breadth', Val, _) ->
     [<<"Max-Breadth: ">>, integer_to_list(Val)];
@@ -851,15 +851,15 @@ encode_hdr('min-expires', Val, _) ->
     [<<"Min-Expires: ">>, integer_to_list(Val)];
 encode_hdr('min-se', {Delta, Params}, _) ->
     [<<"Min-SE: ">>, encode_type_params({integer_to_list(Delta), Params})];
-encode_hdr(organization, Val, _) ->
+encode_hdr('organization', Val, _) ->
     [<<"Organization: ">>, Val];
-encode_hdr(path, Val, _) ->
+encode_hdr('path', Val, _) ->
     [<<"Path: ">>, join([encode_uri_field(U) || U <- Val], ", ")];
 encode_hdr('permission-missing', Val, _) ->
     [<<"Permission-Missing: ">>, join([encode_uri_field(U) || U <- Val], ", ")];
-encode_hdr(priority, Val, _) ->
+encode_hdr('priority', Val, _) ->
     [<<"Priority: ">>, Val];
-encode_hdr(privacy, Val, _) ->
+encode_hdr('privacy', Val, _) ->
     [<<"Privacy: ">>, join(Val, "; ")];
 encode_hdr('priv-answer-mode', Val, _) ->
     [<<"Priv-Answer-Mode: ">>, join(Val, ", ")];
@@ -869,9 +869,9 @@ encode_hdr('proxy-authorization', {Head, Tail}, _) ->
     [<<"Proxy-Authorization: ">>, Head, $ , join_params(Tail, ", ")];
 encode_hdr('proxy-require', Val, _) ->
     [<<"Proxy-Require: ">>, join(Val, ", ")];
-encode_hdr(rack, {Num, CSeq, Method}, _) ->
+encode_hdr('rack', {Num, CSeq, Method}, _) ->
     [<<"RAck: ">>, integer_to_list(Num), $ , integer_to_list(CSeq), $ , Method];
-encode_hdr(reason, Val, _) ->
+encode_hdr('reason', Val, _) ->
     [<<"Reason: ">>, encode_params_list(Val)];
 encode_hdr('record-route', Val, _) ->
     [<<"Record-Route: ">>, join([encode_uri_field(U) || U <- Val], ", ")];
@@ -885,21 +885,21 @@ encode_hdr('referred-by', Val, _) ->
     [<<"Referred-By: ">>, encode_uri_field(Val)];
 encode_hdr('reject-contact', Val, _) ->
     [<<"Reject-Contact: ">>, encode_params_list(Val)];
-encode_hdr(replaces, Val, _) ->
+encode_hdr('replaces', Val, _) ->
     [<<"Replaces: ">>, encode_type_params(Val)];
 encode_hdr('reply-to', Val, _) ->
     [<<"Reply-To: ">>, encode_uri_field(Val)];
 encode_hdr('request-disposition', Val, _) ->
     [<<"Request-Disposition: ">>, join(Val, ", ")];
-encode_hdr(require, Val, _) ->
+encode_hdr('require', Val, _) ->
     [<<"Require: ">>, join(Val, ", ")];
 encode_hdr('resource-priority', Val, _) ->
     [<<"Resource-Priority: ">>, join(Val, ", ")];
 encode_hdr('retry-after', {Delta, Params}, _) ->
     [<<"Retry-After: ">>, encode_type_params({integer_to_list(Delta), Params})];
-encode_hdr(route, Val, _) ->
+encode_hdr('route', Val, _) ->
     [<<"Route: ">>, join([encode_uri_field(U) || U <- Val], ", ")];
-encode_hdr(rseq, Val, _) ->
+encode_hdr('rseq', Val, _) ->
     [<<"RSeq: ">>, integer_to_list(Val)];
 encode_hdr('security-client', Val, _) ->
     [<<"Security-Client: ">>, encode_params_list(Val)];
@@ -907,7 +907,7 @@ encode_hdr('security-server', Val, _) ->
     [<<"Security-Server: ">>, encode_params_list(Val)];
 encode_hdr('security-verify', Val, _) ->
     [<<"Security-Verify: ">>, encode_params_list(Val)];
-encode_hdr(server, Val, _) ->
+encode_hdr('server', Val, _) ->
     [<<"Server: ">>, Val];
 encode_hdr('service-route', Val, _) ->
     [<<"Service-Route: ">>, join([encode_uri_field(U) || U <- Val], ", ")];
@@ -917,30 +917,30 @@ encode_hdr('sip-etag', Val, _) ->
     [<<"SIP-ETag: ">>, Val];
 encode_hdr('sip-if-match', Val, _) ->
     [<<"SIP-If-Match: ">>, Val];
-encode_hdr(subject, Val, _) ->
+encode_hdr('subject', Val, _) ->
     [<<"Subject: ">>, Val];
 encode_hdr('subscription-state', Val, _) ->
     [<<"Subscription-State: ">>, encode_type_params(Val)];
-encode_hdr(supported, Val, _) ->
+encode_hdr('supported', Val, _) ->
     [<<"Supported: ">>, join(Val, ", ")];
 encode_hdr('suppress-if-match', Val, _) ->
     [<<"Suppress-If-Match: ">>, Val];
 encode_hdr('target-dialog', Val, _) ->
     [<<"Target-Dialog: ">>, encode_type_params(Val)];
-encode_hdr(timestamp, {N1, N2}, _) ->
+encode_hdr('timestamp', {N1, N2}, _) ->
     [<<"Timestamp: ">>, number_to_list(N1), $ , number_to_list(N2)];
-encode_hdr(to, Val, _) ->
+encode_hdr('to', Val, _) ->
     [<<"To: ">>, encode_uri_field(Val)];
 encode_hdr('trigger-consent', Val, _) ->
     %%TODO
     [<<"Trigger-Consent: ">>, Val];
-encode_hdr(unsupported, Val, _) ->
+encode_hdr('unsupported', Val, _) ->
     [<<"Unsupported: ">>, join(Val, ", ")];
 encode_hdr('user-agent', Val, _) ->
     [<<"User-Agent: ">>, Val];
-encode_hdr(via, Val, _) ->
+encode_hdr('via', Val, _) ->
     join([[<<"Via: ">>, encode_via(V)] || V <- Val], "\r\n");
-encode_hdr(warning, Val, _) ->
+encode_hdr('warning', Val, _) ->
     L = [[integer_to_list(C), $ , A, $ , T] || {C, A, T} <- Val],
     [<<"Warning: ">>, join(L, ", ")];
 encode_hdr('www-authenticate', {Head, Tail}, _) ->

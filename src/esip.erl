@@ -176,7 +176,7 @@ send(ReqOrResp) ->
     send(ReqOrResp, []).
 
 send(#sip{type = request, hdrs = Hdrs} = Req, Opts) ->
-    {_, #uri{host = VHost}, _} = esip:get_hdr('from', Hdrs),
+    {_, #uri{host = VHost}, _} = get_hdr('from', Hdrs),
     Branch = esip:make_branch(Hdrs),
     NewHdrs = [esip_transport:make_via_hdr(VHost, Branch)|Hdrs],
     esip_transport:send(Req#sip{hdrs = NewHdrs}, Opts);
@@ -196,7 +196,7 @@ ack(DialogID) ->
 ack(DialogID = #dialog_id{}, Opts) ->
     dialog_send(DialogID, #sip{type = request,
                                method = <<"ACK">>,
-                               hdrs = esip:make_hdrs()}, Opts).
+                               hdrs = make_hdrs()}, Opts).
 
 stop_transaction(TrID) ->
     esip_transaction:stop(TrID).
@@ -210,7 +210,7 @@ make_branch() ->
     iolist_to_binary(["z9hG4bK-", int_to_list(N)]).
 
 make_branch(Hdrs) ->
-    case esip:get_hdrs('via', Hdrs) of
+    case get_hdrs('via', Hdrs) of
         [] ->
             make_branch();
         [Via|_] ->
@@ -228,7 +228,7 @@ make_cseq() ->
     gen_server:call(?MODULE, make_cseq).
 
 make_hdrs() ->
-    [{cseq, make_cseq()},
+    [{'cseq', make_cseq()},
      {'max-forwards', get_config_value(max_forwards)},
      {'call-id', make_callid()}].
 
@@ -381,7 +381,7 @@ set_param(Param, Val, Params) ->
     lists:reverse([{Param, Val}|Res]).
 
 get_branch(Hdrs) ->
-    [Via|_] = get_hdr(via, Hdrs),
+    [Via|_] = get_hdr('via', Hdrs),
     get_param(<<"branch">>, Via#via.params).
 
 is_my_via(#via{transport = Transport, host = Host, port = Port}) ->
@@ -414,22 +414,22 @@ make_response(#sip{hdrs = ReqHdrs,
                    method = RespMethod,
                    type = response} = Resp, Tag) ->
     NeedHdrs = if Status == 100 ->
-                       filter_hdrs([via, from, 'call-id', cseq,
-                                    'max-forwards', to, timestamp], ReqHdrs);
+                       filter_hdrs(['via', 'from', 'call-id', 'cseq',
+                                    'max-forwards', 'to', 'timestamp'], ReqHdrs);
                   Status > 100, Status < 300 ->
-                       filter_hdrs([via, 'record-route', from, 'call-id',
-                                    cseq, 'max-forwards', to], ReqHdrs);
+                       filter_hdrs(['via', 'record-route', 'from', 'call-id',
+                                    'cseq', 'max-forwards', 'to'], ReqHdrs);
                   true ->
-                       filter_hdrs([via, from, 'call-id', cseq,
-                                    'max-forwards', to], ReqHdrs)
+                       filter_hdrs(['via', 'from', 'call-id', 'cseq',
+                                    'max-forwards', 'to'], ReqHdrs)
                end,
     NewNeedHdrs =
         if Status > 100 ->
-                {ToName, ToURI, ToParams} = get_hdr(to, NeedHdrs),
+                {ToName, ToURI, ToParams} = get_hdr('to', NeedHdrs),
                 case has_param(<<"tag">>, ToParams) of
                     false ->
                         NewTo = {ToName, ToURI, [{<<"tag">>, Tag}|ToParams]},
-                        set_hdr(to, NewTo, NeedHdrs);
+                        set_hdr('to', NewTo, NeedHdrs);
                     true ->
                         NeedHdrs
                 end;

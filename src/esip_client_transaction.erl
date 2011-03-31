@@ -180,13 +180,13 @@ proceeding(timer_F, State) ->
     pass_to_transaction_user(State, {error, timeout}),
     {stop, normal, State};
 proceeding({cancel, TU}, #state{req = #sip{hdrs = Hdrs} = Req} = State) ->
-    NewHdrs = esip:filter_hdrs(['call-id', to, from, cseq,
+    NewHdrs = esip:filter_hdrs(['call-id', 'to', 'from', 'cseq',
                                 'max-forwards', 'route'], Hdrs),
-    [Via|_] = esip:get_hdrs(via, Hdrs),
+    [Via|_] = esip:get_hdrs('via', Hdrs),
     CancelReq = #sip{type = request,
                      method = <<"CANCEL">>,
                      uri = Req#sip.uri,
-                     hdrs = [{via, [Via]}|NewHdrs]},
+                     hdrs = [{'via', [Via]}|NewHdrs]},
     esip_client_transaction:start(CancelReq, TU, [{socket, State#state.sock}]),
     {next_state, proceeding, State};
 proceeding(_Event, State) ->
@@ -256,28 +256,28 @@ pass_to_transaction_user(#state{trid = TrID, tu = TU,
 
 send_ack(#state{req = #sip{uri = URI, hdrs = Hdrs,
                            method = <<"INVITE">>}} = State, Resp) ->
-    {Hdrs1, _} = esip:split_hdrs(['call-id', from, cseq,
-                                  route, 'max-forwards',
+    {Hdrs1, _} = esip:split_hdrs(['call-id', 'from', 'cseq',
+                                  'route', 'max-forwards',
                                   'authorization',
                                   'proxy-authorization'], Hdrs),
-    To = esip:get_hdr(to, Resp#sip.hdrs),
-    [Via|_] = esip:get_hdrs(via, Hdrs),
+    To = esip:get_hdr('to', Resp#sip.hdrs),
+    [Via|_] = esip:get_hdrs('via', Hdrs),
     ACK = #sip{type = request,
                uri = URI,
                method = <<"ACK">>,
-               hdrs = [{via, [Via]},{to, To}|Hdrs1]},
+               hdrs = [{'via', [Via]},{'to', To}|Hdrs1]},
     send(State, ACK);
 send_ack(_, _) ->
     ok.
 
 connect(#state{sock = undefined}, #sip{uri = URI, hdrs = Hdrs} = Req) ->
-    NewURI = case esip:get_hdrs(route, Hdrs) of
+    NewURI = case esip:get_hdrs('route', Hdrs) of
                  [{_, RouteURI, _}|_] ->
                      RouteURI;
                  _ ->
                      URI
              end,
-    VHost = case esip:get_hdr(from, Hdrs) of
+    VHost = case esip:get_hdr('from', Hdrs) of
                 {_, #uri{host = Host}, _} ->
                     Host;
                 _ ->
@@ -292,11 +292,11 @@ connect(#state{sock = undefined}, #sip{uri = URI, hdrs = Hdrs} = Req) ->
             Err
     end;
 connect(#state{sock = SIPSocket}, #sip{method = <<"CANCEL">>, hdrs = Hdrs} = Req) ->
-    {[{via, [Via|_]}|_], TailHdrs} = esip:split_hdrs([via], Hdrs),
+    {[{'via', [Via|_]}|_], TailHdrs} = esip:split_hdrs(['via'], Hdrs),
     Branch = esip:get_param(<<"branch">>, Via#via.params),
-    {ok, SIPSocket, Req#sip{hdrs = [{via, [Via]}|TailHdrs]}, Branch};
+    {ok, SIPSocket, Req#sip{hdrs = [{'via', [Via]}|TailHdrs]}, Branch};
 connect(#state{sock = SIPSocket}, #sip{hdrs = Hdrs} = Req) ->
-    VHost = case esip:get_hdr(from, Hdrs) of
+    VHost = case esip:get_hdr('from', Hdrs) of
                 {_, #uri{host = Host}, _} ->
                     Host;
                 _ ->

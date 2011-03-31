@@ -30,8 +30,8 @@ start_link() ->
 
 id(Type, #sip{hdrs = Hdrs}) ->
     CallID = esip:to_lower(esip:get_hdr('call-id', Hdrs)),
-    {_, _, ToParams} = esip:get_hdr(to, Hdrs),
-    {_, _, FromParams} = esip:get_hdr(from, Hdrs),
+    {_, _, ToParams} = esip:get_hdr('to', Hdrs),
+    {_, _, FromParams} = esip:get_hdr('from', Hdrs),
     ToTag = esip:to_lower(esip:get_param(<<"tag">>, ToParams)),
     FromTag = esip:to_lower(esip:get_param(<<"tag">>, FromParams)),
     case Type of
@@ -46,24 +46,24 @@ id(Type, #sip{hdrs = Hdrs}) ->
     end.
 
 open(Req, #sip{type = response, hdrs = RespHdrs, status = Status}, uas, TU) ->
-    {_, _, ToParams} = esip:get_hdr(to, RespHdrs),
+    {_, _, ToParams} = esip:get_hdr('to', RespHdrs),
     LocalTag = esip:get_param(<<"tag">>, ToParams),
     open(Req, LocalTag, state(Status), TU);
 open(#sip{type = request, uri = URI, hdrs = ReqHdrs},
      #sip{type = response, hdrs = RespHdrs, status = Status}, uac, TU) ->
-    case esip:get_hdr(contact, RespHdrs) of
+    case esip:get_hdr('contact', RespHdrs) of
         [{_, RemoteTarget, _}|_] ->
-            [#via{transport = Transport}|_] = esip:get_hdr(via, ReqHdrs),
+            [#via{transport = Transport}|_] = esip:get_hdr('via', ReqHdrs),
             Secure = (esip_transport:via_transport_to_atom(Transport) == tls)
                 and (URI#uri.scheme == <<"sips">>),
             RouteSet = lists:foldl(
                          fun({_, U, _}, Acc) ->
                                  [U|Acc]
                          end, [], esip:get_hdrs('record-route', RespHdrs)),
-            LocalSeqNum = esip:get_hdr(cseq, ReqHdrs),
+            LocalSeqNum = esip:get_hdr('cseq', ReqHdrs),
             CallID = esip:get_hdr('call-id', ReqHdrs),
-            {_, LocalURI, FromParams} = esip:get_hdr(from, ReqHdrs),
-            {_, RemoteURI, ToParams} = esip:get_hdr(to, RespHdrs),
+            {_, LocalURI, FromParams} = esip:get_hdr('from', ReqHdrs),
+            {_, RemoteURI, ToParams} = esip:get_hdr('to', RespHdrs),
             LocalTag = esip:get_param(<<"tag">>, FromParams),
             RemoteTag = esip:get_param(<<"tag">>, ToParams),
             Dialog = #dialog{secure = Secure,
@@ -89,16 +89,16 @@ open(#sip{type = request, uri = URI, hdrs = ReqHdrs},
             {error, no_contact_header}
     end;
 open(#sip{type = request, uri = URI, hdrs = Hdrs}, LocalTag, State, TU) ->
-    case esip:get_hdr(contact, Hdrs) of
+    case esip:get_hdr('contact', Hdrs) of
         [{_, RemoteTarget, _}|_] ->
-            [#via{transport = Transport}|_] = esip:get_hdr(via, Hdrs),
+            [#via{transport = Transport}|_] = esip:get_hdr('via', Hdrs),
             Secure = (esip_transport:via_transport_to_atom(Transport) == tls)
                 and (URI#uri.scheme == <<"sips">>),
             RouteSet = [U || {_, U, _} <- esip:get_hdrs('record-route', Hdrs)],
-            RemoteSeqNum = esip:get_hdr(cseq, Hdrs),
+            RemoteSeqNum = esip:get_hdr('cseq', Hdrs),
             CallID = esip:get_hdr('call-id', Hdrs),
-            {_, RemoteURI, FromParams} = esip:get_hdr(from, Hdrs),
-            {_, LocalURI, _} = esip:get_hdr(to, Hdrs),
+            {_, RemoteURI, FromParams} = esip:get_hdr('from', Hdrs),
+            {_, LocalURI, _} = esip:get_hdr('to', Hdrs),
             RemoteTag = esip:get_param(<<"tag">>, FromParams),
             Dialog = #dialog{secure = Secure,
                              route_set = RouteSet,
@@ -162,19 +162,19 @@ prepare_request(DialogID,
                         case esip:has_param(<<"lr">>, Params) of
                             true ->
                                 {RemoteTarget,
-                                 [{route, [{<<>>, U, []}]} || U <- RouteSet]};
+                                 [{'route', [{<<>>, U, []}]} || U <- RouteSet]};
                             false ->
                                 {URI,
-                                 [{route, [{<<>>, U, []}]} ||
+                                 [{'route', [{<<>>, U, []}]} ||
                                      U <- URIs ++ [RemoteTarget]]}
                         end
                 end,
-            {_, NewHdrs} = esip:split_hdrs([from, to, cseq,
-                                            route, 'call-id'], Hdrs),
+            {_, NewHdrs} = esip:split_hdrs(['from', 'to', 'cseq',
+                                            'route', 'call-id'], Hdrs),
             Req#sip{uri = RequestURI,
-                    hdrs = Routes ++ [{to, To},
-                                      {from, From},
-                                      {cseq, CSeq},
+                    hdrs = Routes ++ [{'to', To},
+                                      {'from', From},
+                                      {'cseq', CSeq},
                                       {'call-id', CallID}|NewHdrs]};
         _ ->
             Req

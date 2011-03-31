@@ -91,8 +91,8 @@ send(#sip{type = response, hdrs = Hdrs} = Resp, Opts) ->
         {value, {_, SIPSocket}} ->
             send(SIPSocket, Resp);
         _ ->
-            [Via|_] = esip:get_hdrs(via, Hdrs),
-            VirtualHost = case esip:get_hdr(to, Hdrs) of
+            [Via|_] = esip:get_hdrs('via', Hdrs),
+            VirtualHost = case esip:get_hdr('to', Hdrs) of
                               {_, #uri{host = Host}, _} ->
                                   Host;
                               _ ->
@@ -110,13 +110,13 @@ send(#sip{type = request, uri = URI, hdrs = Hdrs} = Req, Opts) ->
         {value, {_, SIPSocket}} ->
             send(SIPSocket, Req);
         _ ->
-            NewURI = case esip:get_hdrs(route, Hdrs) of
+            NewURI = case esip:get_hdrs('route', Hdrs) of
                          [{_, RouteURI, _}|_] ->
                              RouteURI;
                          _ ->
                              URI
                      end,
-            VirtualHost = case esip:get_hdr(from, Hdrs) of
+            VirtualHost = case esip:get_hdr('from', Hdrs) of
                               {_, #uri{host = Host}, _} ->
                                   Host;
                               _ ->
@@ -276,25 +276,25 @@ make_via_hdr(VirtualHost) ->
 make_via_hdr(VirtualHost, Branch) ->
     case get_route(VirtualHost) of
         {ok, Transport, Host, Port} ->
-            {via, [#via{transport = atom_to_via_transport(Transport),
-                        host = Host,
-                        port = Port,
-                        params = [{<<"branch">>, Branch},
-                                  {<<"rport">>, <<>>}]}]};
+            {'via', [#via{transport = atom_to_via_transport(Transport),
+                          host = Host,
+                          port = Port,
+                          params = [{<<"branch">>, Branch},
+                                    {<<"rport">>, <<>>}]}]};
         error ->
-            {via, []}
+            {'via', []}
     end.
 
 make_via_hdr(VirtualHost, Branch, Transport) ->
     case get_route(VirtualHost, Transport) of
         {ok, _, Host, Port} ->
-            {via, [#via{transport = atom_to_via_transport(Transport),
-                        host = Host,
-                        port = Port,
-                        params = [{<<"branch">>, Branch},
-                                  {<<"rport">>, <<>>}]}]};
+            {'via', [#via{transport = atom_to_via_transport(Transport),
+                          host = Host,
+                          port = Port,
+                          params = [{<<"branch">>, Branch},
+                                    {<<"rport">>, <<>>}]}]};
         error ->
-            {via, []}
+            {'via', []}
     end.
 
 make_contact() ->
@@ -329,18 +329,18 @@ make_contact(VirtualHost, Transport) ->
     end.
 
 fix_topmost_via(Transport, Hdrs) ->
-    VirtualHost = case esip:get_hdr(from, Hdrs) of
+    VirtualHost = case esip:get_hdr('from', Hdrs) of
                       {_, #uri{host = VHost}, _} ->
                           VHost;
                       _ ->
                           undefined
                   end,
-    case esip:split_hdrs([via], Hdrs) of
+    case esip:split_hdrs(['via'], Hdrs) of
         {[], RestHdrs} ->
             [make_via_hdr(VirtualHost, esip:make_branch(), Transport)|RestHdrs];
-        {[{via, [Via|Vias]}|RestVias], RestHdrs} ->
+        {[{'via', [Via|Vias]}|RestVias], RestHdrs} ->
             NewVia = fix_via(Via, VirtualHost, Transport),
-            [{via, [NewVia|Vias]}|RestVias] ++ RestHdrs
+            [{'via', [NewVia|Vias]}|RestVias] ++ RestHdrs
     end.
 
 fix_via(#via{transport = ViaT, host = Host, port = Port} = Via, VHost, T) ->
@@ -417,7 +417,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%====================================================================
 prepare_request(#sip_socket{peer = {Addr, Port}, type = SockType},
                 #sip{hdrs = Hdrs} = Request) ->
-    case esip:split_hdrs([via], Hdrs) of
+    case esip:split_hdrs(['via'], Hdrs) of
         {[{_, [#via{params = Params, host = Host} = Via|RestVias]}|Vias],
          RestHdrs} ->
             case is_valid_via(Via, SockType)
@@ -443,7 +443,7 @@ prepare_request(#sip_socket{peer = {Addr, Port}, type = SockType},
                                   _ ->
                                       Params1
                               end,
-                    NewVias = [{via, [Via#via{params = Params2}|RestVias]}|Vias],
+                    NewVias = [{'via', [Via#via{params = Params2}|RestVias]}|Vias],
                     NewRestHdrs = case esip:get_hdr('max-forwards', RestHdrs) of
                                       undefined ->
                                           MF = esip:get_config_value(max_forwards),
@@ -460,7 +460,7 @@ prepare_request(#sip_socket{peer = {Addr, Port}, type = SockType},
     end.
 
 prepare_response(#sip_socket{type = SockType}, #sip{hdrs = Hdrs} = Response) ->
-    case esip:get_hdrs(via, Hdrs) of
+    case esip:get_hdrs('via', Hdrs) of
         [#via{host = Host, port = Port, transport = Transport} = Via|_] ->
             case is_valid_via(Via, SockType) andalso is_valid_hdrs(Hdrs) of
                 true ->
@@ -480,9 +480,9 @@ prepare_response(#sip_socket{type = SockType}, #sip{hdrs = Hdrs} = Response) ->
 
 is_valid_hdrs(Hdrs) ->
     try
-        From = esip:get_hdr(from, Hdrs),
-        To = esip:get_hdr(to, Hdrs),
-        CSeq = esip:get_hdr(cseq, Hdrs),
+        From = esip:get_hdr('from', Hdrs),
+        To = esip:get_hdr('to', Hdrs),
+        CSeq = esip:get_hdr('cseq', Hdrs),
         CallID = esip:get_hdr('call-id', Hdrs),
         has_from(From) and has_to(To)
             and (CSeq /= undefined) and (CallID /= undefined)

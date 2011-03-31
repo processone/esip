@@ -285,10 +285,10 @@ pass_to_transaction_user(#state{trid = TrID, tu = TU, sock = Sock}, Req) ->
 
 find_transaction_user(Req, SIPSock, TrID) ->
     case esip_dialog:id(uas, Req) of
-        #dialog_id{local_tag = Tag} when Tag /= <<>> ->
-            case esip_dialog:lookup(esip_dialog:id(uas, Req)) of
+        #dialog_id{local_tag = Tag} = DialogID when Tag /= <<>> ->
+            case esip_dialog:lookup(DialogID) of
                 {ok, TU, #dialog{remote_seq_num = RemoteSeqNum}} ->
-                    CSeq = esip:get_hdr(cseq, Req#sip.hdrs),
+                    CSeq = esip:get_hdr('cseq', Req#sip.hdrs),
                     if is_integer(RemoteSeqNum), RemoteSeqNum > CSeq ->
                             stop;
                        true ->
