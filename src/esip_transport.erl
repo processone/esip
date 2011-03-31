@@ -335,12 +335,12 @@ fix_topmost_via(Transport, Hdrs) ->
                       _ ->
                           undefined
                   end,
-    case esip:split_hdrs(['via'], Hdrs) of
+    case esip:split_hdrs('via', Hdrs) of
         {[], RestHdrs} ->
             [make_via_hdr(VirtualHost, esip:make_branch(), Transport)|RestHdrs];
-        {[{'via', [Via|Vias]}|RestVias], RestHdrs} ->
+        {[Via|Vias], RestHdrs} ->
             NewVia = fix_via(Via, VirtualHost, Transport),
-            [{'via', [NewVia|Vias]}|RestVias] ++ RestHdrs
+            [{'via', [NewVia|Vias]}|RestHdrs]
     end.
 
 fix_via(#via{transport = ViaT, host = Host, port = Port} = Via, VHost, T) ->
@@ -417,9 +417,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%====================================================================
 prepare_request(#sip_socket{peer = {Addr, Port}, type = SockType},
                 #sip{hdrs = Hdrs} = Request) ->
-    case esip:split_hdrs(['via'], Hdrs) of
-        {[{_, [#via{params = Params, host = Host} = Via|RestVias]}|Vias],
-         RestHdrs} ->
+    case esip:split_hdrs('via', Hdrs) of
+        {[#via{params = Params, host = Host} = Via|Vias], RestHdrs} ->
             case is_valid_via(Via, SockType)
                 andalso is_valid_hdrs(RestHdrs) of
                 true ->
@@ -443,7 +442,7 @@ prepare_request(#sip_socket{peer = {Addr, Port}, type = SockType},
                                   _ ->
                                       Params1
                               end,
-                    NewVias = [{'via', [Via#via{params = Params2}|RestVias]}|Vias],
+                    NewVia = {'via', [Via#via{params = Params2}|Vias]},
                     NewRestHdrs = case esip:get_hdr('max-forwards', RestHdrs) of
                                       undefined ->
                                           MF = esip:get_config_value(max_forwards),
@@ -451,7 +450,7 @@ prepare_request(#sip_socket{peer = {Addr, Port}, type = SockType},
                                       _ ->
                                           RestHdrs
                                   end,
-                    Request#sip{hdrs = NewVias ++ NewRestHdrs};
+                    Request#sip{hdrs = [NewVia|NewRestHdrs]};
                 false ->
                     error
             end;

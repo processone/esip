@@ -256,10 +256,10 @@ pass_to_transaction_user(#state{trid = TrID, tu = TU,
 
 send_ack(#state{req = #sip{uri = URI, hdrs = Hdrs,
                            method = <<"INVITE">>}} = State, Resp) ->
-    {Hdrs1, _} = esip:split_hdrs(['call-id', 'from', 'cseq',
-                                  'route', 'max-forwards',
-                                  'authorization',
-                                  'proxy-authorization'], Hdrs),
+    Hdrs1 = esip:filter_hdrs(['call-id', 'from', 'cseq',
+                              'route', 'max-forwards',
+                              'authorization',
+                              'proxy-authorization'], Hdrs),
     To = esip:get_hdr('to', Resp#sip.hdrs),
     [Via|_] = esip:get_hdrs('via', Hdrs),
     ACK = #sip{type = request,
@@ -292,7 +292,7 @@ connect(#state{sock = undefined}, #sip{uri = URI, hdrs = Hdrs} = Req) ->
             Err
     end;
 connect(#state{sock = SIPSocket}, #sip{method = <<"CANCEL">>, hdrs = Hdrs} = Req) ->
-    {[{'via', [Via|_]}|_], TailHdrs} = esip:split_hdrs(['via'], Hdrs),
+    {[Via|_], TailHdrs} = esip:split_hdrs('via', Hdrs),
     Branch = esip:get_param(<<"branch">>, Via#via.params),
     {ok, SIPSocket, Req#sip{hdrs = [{'via', [Via]}|TailHdrs]}, Branch};
 connect(#state{sock = SIPSocket}, #sip{hdrs = Hdrs} = Req) ->
