@@ -277,7 +277,7 @@ send_ack(#state{req = #sip{uri = URI, hdrs = Hdrs,
     ACK = #sip{type = request,
                uri = URI,
                method = <<"ACK">>,
-               hdrs = [{'via', [Via]},{'to', To}|Hdrs2]},
+               hdrs = Hdrs2},
     send(State, ACK);
 send_ack(_, _) ->
     ok.
