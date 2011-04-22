@@ -69,19 +69,14 @@ trying(#sip{method = <<"CANCEL">>, type = request} = Req, State) ->
                               esip:make_tag()),
     proceeding(Resp, State#state{req = Req});
 trying(#sip{type = request, method = Method} = Req, State) ->
-    TU = find_transaction_user(Req, State#state.sock, State#state.trid),
-    case is_transaction_user(TU) of
-        true ->
+    case find_transaction_user(Req, State#state.sock, State#state.trid) of
+        {dialog, TU} ->
             NewState = State#state{tu = TU, req = Req},
             case pass_to_transaction_user(NewState, Req) of
                 #sip{type = response} = Resp ->
-                    proceeding(Resp, NewState#state{tu = undefined});
+                    proceeding(Resp, NewState);
                 wait ->
-                    if Method == <<"INVITE">> ->
-                            gen_fsm:send_event_after(200, trying);
-                       true ->
-                            ok
-                    end,
+                    maybe_send_trying(Method),
                     {next_state, proceeding, NewState};
                 _ ->
                     Resp = esip:make_response(
@@ -89,11 +84,28 @@ trying(#sip{type = request, method = Method} = Req, State) ->
                              esip:make_tag()),
                     proceeding(Resp, State#state{req = Req})
             end;
-        false ->
+        #sip{type = response} = Resp ->
+            proceeding(Resp, State#state{req = Req});
+        cseq_out_of_order ->
             Resp = esip:make_response(
-                     Req, #sip{status = 500, type = response},
+                     Req, #sip{status = 500, type = response,
+                               reason = <<"CSeq is Out of Order">>},
                      esip:make_tag()),
-            proceeding(Resp, State#state{req = Req})
+            proceeding(Resp, State#state{req = Req});
+        wait ->
+            maybe_send_trying(Method),
+            {next_state, proceeding, State#state{req = Req}};
+        TU ->
+            case is_transaction_user(TU) of
+                true ->
+                    maybe_send_trying(Method),
+                    {next_state, proceeding, State#state{tu = TU, req = Req}};
+                false ->
+                    Resp = esip:make_response(
+                             Req, #sip{status = 500, type = response},
+                             esip:make_tag()),
+                    proceeding(Resp, State#state{req = Req})
+            end
     end;
 trying(_Event, State) ->
     {next_state, trying, State}.
@@ -109,6 +121,7 @@ proceeding(trying, #state{resp = undefined} = State) ->
             {stop, normal, State}
     end;
 proceeding(#sip{type = response, status = Status} = Resp, State) when Status < 200 ->
+    update_remote_seqnum(Resp, State),
     case send(State, Resp) of
         ok ->
             {next_state, proceeding, State#state{resp = Resp}};
@@ -117,6 +130,7 @@ proceeding(#sip{type = response, status = Status} = Resp, State) when Status < 2
     end;
 proceeding(#sip{type = response, status = Status} = Resp,
            #state{req = #sip{method = <<"INVITE">>}} = State) when Status < 300 ->
+    update_remote_seqnum(Resp, State),
     gen_fsm:send_event_after(64*esip:timer1(), timer_L),
     case send(State, Resp) of
         ok ->
@@ -126,6 +140,7 @@ proceeding(#sip{type = response, status = Status} = Resp,
     end;
 proceeding(#sip{type = response, status = Status} = Resp,
            #state{req = #sip{method = <<"INVITE">>}} = State) when Status >= 300 ->
+    update_remote_seqnum(Resp, State),
     T1 = esip:timer1(),
     if (State#state.sock)#sip_socket.type == udp ->
             gen_fsm:send_event_after(T1, {timer_G, T1});
@@ -140,6 +155,7 @@ proceeding(#sip{type = response, status = Status} = Resp,
             {stop, normal, State}
     end;
 proceeding(#sip{type = response, status = Status} = Resp, State) when Status >= 200 ->
+    update_remote_seqnum(Resp, State),
     if (State#state.sock)#sip_socket.type == udp ->
             gen_fsm:send_event_after(64*esip:timer1(), timer_J),
             case send(State, Resp) of
@@ -262,8 +278,6 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-is_transaction_user(#sip{type = response}) ->
-    true;
 is_transaction_user(TU) when is_function(TU) ->
     true;
 is_transaction_user({M, F, A}) when is_atom(M), is_atom(F), is_list(A) ->
@@ -283,16 +297,18 @@ pass_to_transaction_user(#state{trid = TrID, tu = TU, sock = Sock}, Req) ->
             TU
     end.
 
-find_transaction_user(Req, SIPSock, TrID) ->
+find_transaction_user(#sip{method = Method} = Req, SIPSock, TrID) ->
     case esip_dialog:id(uas, Req) of
         #dialog_id{local_tag = Tag} = DialogID when Tag /= <<>> ->
             case esip_dialog:lookup(DialogID) of
+                {ok, TU, _Dialog} when Method == <<"OPTIONS">> ->
+                    {dialog, TU};
                 {ok, TU, #dialog{remote_seq_num = RemoteSeqNum}} ->
                     CSeq = esip:get_hdr('cseq', Req#sip.hdrs),
                     if is_integer(RemoteSeqNum), RemoteSeqNum > CSeq ->
-                            stop;
+                            cseq_out_of_order;
                        true ->
-                            TU
+                            {dialog, TU}
                     end;
                 _ ->
                     esip:callback(request, [Req, SIPSock, TrID])
@@ -309,3 +325,17 @@ send(State, Resp) ->
             pass_to_transaction_user(State, Err),
             Err
     end.
+
+maybe_send_trying(<<"INVITE">>) ->
+    gen_fsm:send_event_after(200, trying);
+maybe_send_trying(_) ->
+    ok.
+
+update_remote_seqnum(#sip{status = S}, _State) when S == 100; S >= 300 ->
+    ok;
+update_remote_seqnum(_Resp, #state{req = #sip{method = <<"OPTIONS">>}}) ->
+    ok;
+update_remote_seqnum(#sip{hdrs = Hdrs} = Resp, _State) ->
+    DialogID = esip_dialog:id(uas, Resp),
+    CSeq = esip:get_hdr('cseq', Hdrs),
+    esip_dialog:update_remote_seqnum(DialogID, CSeq).

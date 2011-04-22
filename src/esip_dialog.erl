@@ -11,7 +11,8 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, open/4, id/2, close/1, lookup/1, prepare_request/2]).
+-export([start_link/0, open/4, id/2, close/1, lookup/1, prepare_request/2,
+         update_remote_seqnum/2, update_local_seqnum/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -154,6 +155,7 @@ prepare_request(DialogID,
                       true ->
                            esip:make_cseq()
                    end,
+            update_local_seqnum(DialogID, CSeq),
             {RequestURI, Routes} =
                 case RouteSet of
                     [] ->
@@ -179,6 +181,12 @@ prepare_request(DialogID,
         _ ->
             Req
     end.
+
+update_remote_seqnum(DialogID, CSeq) ->
+    gen_server:cast(?MODULE, {update_seqnum, remote, DialogID, CSeq}).
+
+update_local_seqnum(DialogID, CSeq) ->
+    gen_server:cast(?MODULE, {update_seqnum, local, DialogID, CSeq}).
 
 close(DialogID) ->
     call({close, DialogID}).
@@ -222,6 +230,20 @@ handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
 
+handle_cast({update_seqnum, Type, DialogID, CSeq}, State) ->
+    case ets:lookup(esip_dialog, DialogID) of
+        [{_, TU, Dialog}] ->
+            NewDialog = case Type of
+                            remote ->
+                                Dialog#dialog{remote_seq_num = CSeq};
+                            local ->
+                                Dialog#dialog{local_seq_num = CSeq}
+                        end,
+            ets:insert(esip_dialog, {DialogID, TU, NewDialog}),
+            {noreply, State};
+        _ ->
+            {noreply, State}
+    end;
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
