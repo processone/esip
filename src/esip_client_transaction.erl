@@ -252,9 +252,9 @@ pass_to_transaction_user(#state{tu = TU, req = Req, sock = Sock}, Resp) ->
     TrID = make_trid(),
     case TU of
         F when is_function(F) ->
-            F(Resp, Req, Sock, TrID);
+            esip:callback(F, [Resp, Req, Sock, TrID]);
         {M, F, A} ->
-            apply(M, F, [Resp, Req, Sock, TrID | A]);
+            esip:callback(M, F, [Resp, Req, Sock, TrID | A]);
         _ ->
             TU
     end.
