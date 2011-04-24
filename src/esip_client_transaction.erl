@@ -281,21 +281,15 @@ send_ack(#state{req = #sip{uri = URI, hdrs = Hdrs,
 send_ack(_, _) ->
     ok.
 
-connect(#state{sock = undefined}, #sip{uri = URI, hdrs = Hdrs} = Req) ->
-    NewURI = case esip:get_hdrs('route', Hdrs) of
-                 [{_, RouteURI, _}|_] ->
-                     RouteURI;
-                 _ ->
-                     URI
-             end,
-    VHost = case esip:get_hdr('from', Hdrs) of
-                {_, #uri{host = Host}, _} ->
-                    Host;
-                _ ->
-                    undefined
-            end,
-    case esip_transport:connect(NewURI, VHost) of
+connect(#state{sock = undefined}, #sip{hdrs = Hdrs} = Req) ->
+    case esip_transport:connect(Req) of
         {ok, SIPSocket} ->
+            VHost = case esip:get_hdr('from', Hdrs) of
+                        {_, #uri{host = Host}, _} ->
+                            Host;
+                        _ ->
+                            undefined
+                    end,
             Branch = esip:make_branch(Hdrs),
             NewHdrs = [esip_transport:make_via_hdr(VHost, Branch)|Hdrs],
             {ok, SIPSocket, Req#sip{hdrs = NewHdrs}, Branch};

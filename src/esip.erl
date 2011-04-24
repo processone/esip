@@ -107,6 +107,7 @@ behaviour_info(callbacks) ->
      {response, 2},
      {message_in, 2},
      {message_out, 2},
+     {locate, 1},
      {data_in, 2},
      {data_out, 2}].
 

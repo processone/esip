@@ -13,7 +13,7 @@
 -export([recv/2, send/1, send/2, connect/2, start_link/0,
          register_socket/3, unregister_socket/3,
          register_udp_listener/1, unregister_udp_listener/1,
-         make_via_hdr/1, make_via_hdr/2,
+         make_via_hdr/1, make_via_hdr/2, connect/1,
          register_route/4, unregister_route/4,
          make_contact/0, make_contact/1, make_contact/2,
          have_route/3, via_transport_to_atom/1]).
@@ -86,49 +86,53 @@ send(#sip_socket{type = Transport} = SIPSock, Msg) ->
         _ ->
             ok
     end;
-send(#sip{type = response, hdrs = Hdrs} = Resp, Opts) ->
+send(#sip{} = SIPMsg, Opts) ->
     case lists:keysearch(socket, 1, Opts) of
         {value, {_, SIPSocket}} ->
-            send(SIPSocket, Resp);
+            send(SIPSocket, SIPMsg);
         _ ->
-            [Via|_] = esip:get_hdrs('via', Hdrs),
-            VirtualHost = case esip:get_hdr('to', Hdrs) of
-                              {_, #uri{host = Host}, _} ->
-                                  Host;
-                              _ ->
-                                  undefined
-                          end,
-            case connect(Via, VirtualHost) of
-                {ok, SIPSocket} ->
-                    send(SIPSocket, Resp);
-                Err ->
-                    Err
-            end
-    end;
-send(#sip{type = request, uri = URI, hdrs = Hdrs} = Req, Opts) ->
-    case lists:keysearch(socket, 1, Opts) of
-        {value, {_, SIPSocket}} ->
-            send(SIPSocket, Req);
-        _ ->
-            NewURI = case esip:get_hdrs('route', Hdrs) of
-                         [{_, RouteURI, _}|_] ->
-                             RouteURI;
-                         _ ->
-                             URI
-                     end,
-            VirtualHost = case esip:get_hdr('from', Hdrs) of
-                              {_, #uri{host = Host}, _} ->
-                                  Host;
-                              _ ->
-                                  undefined
-                          end,
-            case connect(NewURI, VirtualHost) of
+            case connect(SIPMsg) of
                 {ok, SIPSock} ->
-                    send(SIPSock, Req);
+                    send(SIPSock, SIPMsg);
                 Err ->
                     Err
             end
     end.
+
+connect(#sip{type = request, uri = URI, hdrs = Hdrs} = Req) ->
+    NewURI = case esip:callback(locate, [Req]) of
+                 U = #uri{} ->
+                     U;
+                 _ ->
+                     case esip:get_hdrs('route', Hdrs) of
+                         [{_, RouteURI, _}|_] ->
+                             RouteURI;
+                         _ ->
+                             URI
+                     end
+             end,
+    VirtualHost = case esip:get_hdr('from', Hdrs) of
+                      {_, #uri{host = Host}, _} ->
+                          Host;
+                      _ ->
+                          undefined
+                  end,
+    connect(NewURI, VirtualHost);
+connect(#sip{type = response, hdrs = Hdrs} = Resp) ->
+    NewVia = case esip:callback(locate, [Resp]) of
+                 Via = #via{} ->
+                     Via;
+                 _ ->
+                     [Via|_] = esip:get_hdrs('via', Hdrs),
+                     Via
+             end,
+    VirtualHost = case esip:get_hdr('to', Hdrs) of
+                      {_, #uri{host = Host}, _} ->
+                          Host;
+                      _ ->
+                          undefined
+                  end,
+    connect(NewVia, VirtualHost).
 
 connect(URIorVia, VHost) ->
     case resolve(URIorVia, VHost) of
