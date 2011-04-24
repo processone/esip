@@ -77,11 +77,17 @@ trying(#sip{type = request, method = Method} = Req, State) ->
                 wait ->
                     maybe_send_trying(Req),
                     {next_state, proceeding, NewState};
-                _ ->
-                    Resp = esip:make_response(
-                             Req, #sip{status = 500, type = response},
-                             esip:make_tag()),
-                    proceeding(Resp, State#state{method = Method})
+                NewTU ->
+                    case is_transaction_user(NewTU) of
+                        true ->
+                            maybe_send_trying(Req),
+                            {next_state, proceeding, NewState#state{tu = NewTU}};
+                        false ->
+                            Resp = esip:make_response(
+                                     Req, #sip{status = 500, type = response},
+                                     esip:make_tag()),
+                            proceeding(Resp, State#state{method = Method})
+                    end
             end;
         #sip{type = response} = Resp ->
             proceeding(Resp, State#state{method = Method});
