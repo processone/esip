@@ -28,7 +28,7 @@
 
 -define(MAX_TRANSACTION_LIFETIME, timer:minutes(5)).
 
--record(state, {sock, branch, method, resp, tu, trid}).
+-record(state, {sock, branch, method, resp, tu}).
 
 %%====================================================================
 %% API
@@ -43,7 +43,7 @@ start(SIPSocket, Request) ->
         {ok, Pid} ->
             esip_transaction:insert(Branch, Request#sip.method, server, Pid),
             gen_fsm:send_event(Pid, Request),
-            {ok, #trid{owner = Pid, type = server}};
+            {ok, make_trid(Pid)};
         Err ->
             Err
     end.
@@ -58,8 +58,7 @@ stop(Pid) ->
 %% gen_fsm callbacks
 %%====================================================================
 init([SIPSock, Branch]) ->
-    TrID = #trid{owner = self(), type = server},
-    State = #state{sock = SIPSock, branch = Branch, trid = TrID},
+    State = #state{sock = SIPSock, branch = Branch},
     erlang:send_after(?MAX_TRANSACTION_LIFETIME, self(), timeout),
     {ok, trying, State}.
 
@@ -69,7 +68,7 @@ trying(#sip{method = <<"CANCEL">> = Method, type = request} = Req, State) ->
                               esip:make_tag()),
     proceeding(Resp, State#state{method = Method});
 trying(#sip{type = request, method = Method} = Req, State) ->
-    case find_transaction_user(Req, State#state.sock, State#state.trid) of
+    case find_transaction_user(Req, State#state.sock) of
         {dialog, TU} ->
             NewState = State#state{tu = TU, method = Method},
             case pass_to_transaction_user(NewState, Req) of
@@ -287,7 +286,8 @@ is_transaction_user({M, F, A}) when is_atom(M), is_atom(F), is_list(A) ->
 is_transaction_user(_) ->
     false.
 
-pass_to_transaction_user(#state{trid = TrID, tu = TU, sock = Sock}, Req) ->
+pass_to_transaction_user(#state{tu = TU, sock = Sock}, Req) ->
+    TrID = make_trid(),
     case TU of
         F when is_function(F) ->
             esip:callback(F, [Req, Sock, TrID]);
@@ -299,7 +299,8 @@ pass_to_transaction_user(#state{trid = TrID, tu = TU, sock = Sock}, Req) ->
             TU
     end.
 
-find_transaction_user(#sip{method = Method} = Req, SIPSock, TrID) ->
+find_transaction_user(#sip{method = Method} = Req, SIPSock) ->
+    TrID = make_trid(),
     case esip_dialog:id(uas, Req) of
         #dialog_id{local_tag = Tag} = DialogID when Tag /= <<>> ->
             case esip_dialog:lookup(DialogID) of
@@ -343,3 +344,9 @@ update_remote_seqnum(#sip{hdrs = Hdrs} = Resp, _State) ->
     DialogID = esip_dialog:id(uas, Resp),
     CSeq = esip:get_hdr('cseq', Hdrs),
     esip_dialog:update_remote_seqnum(DialogID, CSeq).
+
+make_trid() ->
+    make_trid(self()).
+
+make_trid(Pid) ->
+    #trid{owner = Pid, type = server}.
