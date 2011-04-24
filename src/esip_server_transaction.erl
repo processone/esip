@@ -28,7 +28,7 @@
 
 -define(MAX_TRANSACTION_LIFETIME, timer:minutes(5)).
 
--record(state, {sock, branch, req, resp, tu, trid}).
+-record(state, {sock, branch, method, resp, tu, trid}).
 
 %%====================================================================
 %% API
@@ -63,60 +63,59 @@ init([SIPSock, Branch]) ->
     erlang:send_after(?MAX_TRANSACTION_LIFETIME, self(), timeout),
     {ok, trying, State}.
 
-trying(#sip{method = <<"CANCEL">>, type = request} = Req, State) ->
+trying(#sip{method = <<"CANCEL">> = Method, type = request} = Req, State) ->
     Resp = esip:make_response(Req,
                               #sip{type = response, status = 200},
                               esip:make_tag()),
-    proceeding(Resp, State#state{req = Req});
+    proceeding(Resp, State#state{method = Method});
 trying(#sip{type = request, method = Method} = Req, State) ->
     case find_transaction_user(Req, State#state.sock, State#state.trid) of
         {dialog, TU} ->
-            NewState = State#state{tu = TU, req = Req},
+            NewState = State#state{tu = TU, method = Method},
             case pass_to_transaction_user(NewState, Req) of
                 #sip{type = response} = Resp ->
                     proceeding(Resp, NewState);
                 wait ->
-                    maybe_send_trying(Method),
+                    maybe_send_trying(Req),
                     {next_state, proceeding, NewState};
                 _ ->
                     Resp = esip:make_response(
                              Req, #sip{status = 500, type = response},
                              esip:make_tag()),
-                    proceeding(Resp, State#state{req = Req})
+                    proceeding(Resp, State#state{method = Method})
             end;
         #sip{type = response} = Resp ->
-            proceeding(Resp, State#state{req = Req});
+            proceeding(Resp, State#state{method = Method});
         cseq_out_of_order ->
             Resp = esip:make_response(
                      Req, #sip{status = 500, type = response,
                                reason = <<"CSeq is Out of Order">>},
                      esip:make_tag()),
-            proceeding(Resp, State#state{req = Req});
+            proceeding(Resp, State#state{method = Method});
         wait ->
-            maybe_send_trying(Method),
-            {next_state, proceeding, State#state{req = Req}};
+            maybe_send_trying(Req),
+            {next_state, proceeding, State#state{method = Method}};
         TU ->
             case is_transaction_user(TU) of
                 true ->
-                    maybe_send_trying(Method),
-                    {next_state, proceeding, State#state{tu = TU, req = Req}};
+                    maybe_send_trying(Req),
+                    {next_state, proceeding, State#state{tu = TU,
+                                                         method = Method}};
                 false ->
                     Resp = esip:make_response(
                              Req, #sip{status = 500, type = response},
                              esip:make_tag()),
-                    proceeding(Resp, State#state{req = Req})
+                    proceeding(Resp, State#state{method = Method})
             end
     end;
 trying(_Event, State) ->
     {next_state, trying, State}.
 
-proceeding(trying, #state{resp = undefined} = State) ->
+proceeding({trying, TryingResp}, #state{resp = undefined} = State) ->
     %% TU didn't respond in 200 ms
-    Resp = esip:make_response(State#state.req,
-                              #sip{type = response, status = 100}),
-    case send(State, Resp) of
+    case send(State, TryingResp) of
         ok ->
-            {next_state, proceeding, State#state{resp = Resp}};
+            {next_state, proceeding, State};
         _ ->
             {stop, normal, State}
     end;
@@ -129,7 +128,7 @@ proceeding(#sip{type = response, status = Status} = Resp, State) when Status < 2
             {stop, normal, State}
     end;
 proceeding(#sip{type = response, status = Status} = Resp,
-           #state{req = #sip{method = <<"INVITE">>}} = State) when Status < 300 ->
+           #state{method = <<"INVITE">>} = State) when Status < 300 ->
     update_remote_seqnum(Resp, State),
     gen_fsm:send_event_after(64*esip:timer1(), timer_L),
     case send(State, Resp) of
@@ -139,7 +138,7 @@ proceeding(#sip{type = response, status = Status} = Resp,
             {stop, normal, State}
     end;
 proceeding(#sip{type = response, status = Status} = Resp,
-           #state{req = #sip{method = <<"INVITE">>}} = State) when Status >= 300 ->
+           #state{method = <<"INVITE">>} = State) when Status >= 300 ->
     update_remote_seqnum(Resp, State),
     T1 = esip:timer1(),
     if (State#state.sock)#sip_socket.type == udp ->
@@ -169,7 +168,7 @@ proceeding(#sip{type = response, status = Status} = Resp, State) when Status >= 
             {stop, normal, State}
     end;
 proceeding(#sip{type = request, method = <<"CANCEL">>} = Req, State) ->
-    if (State#state.req)#sip.method == <<"INVITE">> ->
+    if State#state.method == <<"INVITE">> ->
             case pass_to_transaction_user(State, Req) of
                 #sip{type = response} = Resp ->
                     proceeding(Resp#sip{method = <<"INVITE">>}, State);
@@ -179,18 +178,26 @@ proceeding(#sip{type = request, method = <<"CANCEL">>} = Req, State) ->
        true ->
             {next_state, proceeding, State}
     end;
-proceeding(#sip{type = request, method = Method},
-           #state{req = Req, resp = Resp} = State) ->
-    case Req#sip.method of
-	Method when Resp /= undefined ->
+proceeding(#sip{type = request, method = Method} = Req,
+           #state{method = Method, resp = Resp} = State) ->
+    if Resp /= undefined ->
             case send(State, Resp) of
                 ok ->
                     {next_state, proceeding, State};
                 _ ->
                     {stop, normal, State}
             end;
-	_ ->
-	    {next_state, proceeding, State}
+       Method == <<"INVITE">> ->
+            Trying = esip:make_response(Req, #sip{type = response,
+                                                  status = 100}),
+            case send(State, Trying) of
+                ok ->
+                    {next_state, proceeding, State};
+                _ ->
+                    {stop, normal, State}
+            end;
+       true ->
+            {next_state, proceeding, State}
     end;
 proceeding(_Event, State) ->
     {next_state, proceeding, State}.
@@ -208,7 +215,7 @@ accepted(_Event, State) ->
     {next_state, accepted, State}.
 
 completed(#sip{type = request, method = <<"ACK">>},
-          #state{req = #sip{method = <<"INVITE">>}} = State) ->
+          #state{method = <<"INVITE">>} = State) ->
     if (State#state.sock)#sip_socket.type == udp ->
             gen_fsm:send_event_after(esip:timer4(), timer_I),
             {next_state, confirmed, State};
@@ -216,17 +223,12 @@ completed(#sip{type = request, method = <<"ACK">>},
             {stop, normal, State}
     end;
 completed(#sip{type = request, method = Method},
-          #state{req = Req, resp = Resp} = State) ->
-    case Req#sip.method of
-	Method ->
-            case send(State, Resp) of
-                ok ->
-                    {next_state, completed, State};
-                _ ->
-                    {stop, normal, State}
-            end;
-	_ ->
-	    {next_state, completed, State}
+          #state{method = Method, resp = Resp} = State) ->
+    case send(State, Resp) of
+        ok ->
+            {next_state, completed, State};
+        _ ->
+            {stop, normal, State}
     end;
 completed(timer_H, State) ->
     pass_to_transaction_user(State, {error, timeout}),
@@ -269,8 +271,8 @@ handle_info(timeout, _StateName, State) ->
 handle_info(_Info, StateName, State) ->
     {next_state, StateName, State}.
 
-terminate(_Reason, _StateName, #state{branch = Branch, req = Req}) ->
-    esip_transaction:delete(Branch, Req#sip.method, server).
+terminate(_Reason, _StateName, #state{branch = Branch, method = Method}) ->
+    esip_transaction:delete(Branch, Method, server).
 
 code_change(_OldVsn, StateName, State, _Extra) ->
     {ok, StateName, State}.
@@ -326,14 +328,16 @@ send(State, Resp) ->
             Err
     end.
 
-maybe_send_trying(<<"INVITE">>) ->
-    gen_fsm:send_event_after(200, trying);
+maybe_send_trying(#sip{method = <<"INVITE">>} = Req) ->
+    Trying = esip:make_response(Req, #sip{type = response,
+                                          status = 100}),
+    gen_fsm:send_event_after(200, {trying, Trying});
 maybe_send_trying(_) ->
     ok.
 
 update_remote_seqnum(#sip{status = S}, _State) when S == 100; S >= 300 ->
     ok;
-update_remote_seqnum(_Resp, #state{req = #sip{method = <<"OPTIONS">>}}) ->
+update_remote_seqnum(_Resp, #state{method = <<"OPTIONS">>}) ->
     ok;
 update_remote_seqnum(#sip{hdrs = Hdrs} = Resp, _State) ->
     DialogID = esip_dialog:id(uas, Resp),
