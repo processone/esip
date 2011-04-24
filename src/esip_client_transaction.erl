@@ -28,7 +28,7 @@
 
 -define(MAX_TRANSACTION_LIFETIME, timer:minutes(5)).
 
--record(state, {req, tu, sock, trid, branch, cancelled = false}).
+-record(state, {req, tu, sock, branch, cancelled = false}).
 
 %%%===================================================================
 %%% API
@@ -44,7 +44,7 @@ start(Request, TU, Opts) ->
                                 [TU, Opts]) of
         {ok, Pid} ->
             gen_fsm:send_event(Pid, Request),
-            {ok, #trid{owner = Pid, type = client}};
+            {ok, make_trid(Pid)};
         Err ->
             Err
     end.
@@ -62,13 +62,12 @@ stop(Pid) ->
 %%% gen_fsm callbacks
 %%%===================================================================
 init([TU, Opts]) ->
-    TrID = #trid{owner = self(), type = client},
     SIPSocket = case lists:keysearch(socket, 1, Opts) of
                     {value, {_, S}} -> S;
                     _ -> undefined
                 end,
     erlang:send_after(?MAX_TRANSACTION_LIFETIME, self(), timeout),
-    {ok, trying, #state{tu = TU, trid = TrID, sock = SIPSocket}}.
+    {ok, trying, #state{tu = TU, sock = SIPSocket}}.
 
 trying(#sip{type = request, method = Method} = Request, State) ->
     case connect(State, Request) of
@@ -249,8 +248,8 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-pass_to_transaction_user(#state{trid = TrID, tu = TU,
-                                req = Req, sock = Sock}, Resp) ->
+pass_to_transaction_user(#state{tu = TU, req = Req, sock = Sock}, Resp) ->
+    TrID = make_trid(),
     case TU of
         F when is_function(F) ->
             F(Resp, Req, Sock, TrID);
@@ -326,3 +325,9 @@ send(State, Resp) ->
             pass_to_transaction_user(State, Err),
             Err
     end.
+
+make_trid() ->
+    make_trid(self()).
+
+make_trid(Pid) ->
+    #trid{owner = Pid, type = client}.
