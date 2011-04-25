@@ -40,8 +40,8 @@ start(Request, TU) ->
     start(Request, TU, []).
 
 start(Request, TU, Opts) ->
-    case supervisor:start_child(esip_client_transaction_sup,
-                                [TU, Opts]) of
+    case esip_tmp_sup:start_child(esip_client_transaction_sup,
+                                  ?MODULE, gen_fsm, [TU, Opts]) of
         {ok, Pid} ->
             gen_fsm:send_event(Pid, Request),
             {ok, make_trid(Pid)};

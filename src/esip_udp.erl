@@ -28,7 +28,7 @@ start_link(Port, Opts) ->
     gen_server:start_link(?MODULE, [Port, Opts], []).
 
 start(Port, Opts) ->
-    supervisor:start_child(esip_udp_sup, [Port, Opts]).
+    esip_tmp_sup:start_child(esip_udp_sup, ?MODULE, gen_server, [Port, Opts]).
 
 start(State) ->
     gen_server:start(?MODULE, [State], []).

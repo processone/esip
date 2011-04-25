@@ -31,6 +31,11 @@ AC_C_CONST
 AC_FUNC_MALLOC
 AC_HEADER_STDC
 
+AC_ARG_ENABLE(tmp_supervisors,
+[AC_HELP_STRING([--disable-tmp-supervisors], [disable temporary supervisors \
+					     (default: enabled)])],
+[TMP_SUP=NO_TMP_SUP], [])
+
 AC_CHECK_HEADER(erl_nif.h,
 		# Use old-style NIFs if Erlang <= R13B4
 		[AS_VERSION_COMPARE(5.7.5, $ERLANG_ERTS_VER, [],
@@ -40,6 +45,7 @@ AC_CHECK_HEADER(erl_nif.h,
 		[])
 
 AC_SUBST(NIF)
+AC_SUBST(TMP_SUP)
 
 AC_CANONICAL_SYSTEM
 case "$target_os" in

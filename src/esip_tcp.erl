@@ -34,10 +34,11 @@ start_link(Sock, Peer, MyAddr) ->
     gen_server:start_link(?MODULE, [Sock, Peer, MyAddr], []).
 
 start() ->
-    supervisor:start_child(esip_tcp_sup, []).
+    esip_tmp_sup:start_child(esip_tcp_sup, ?MODULE, gen_server, []).
 
 start(Sock, Peer, MyAddr) ->
-    supervisor:start_child(esip_tcp_sup, [Sock, Peer, MyAddr]).
+    esip_tmp_sup:start_child(esip_tcp_sup, ?MODULE,
+                             gen_server, [Sock, Peer, MyAddr]).
 
 connect(Addrs) ->
     connect(Addrs, []).

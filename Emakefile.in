@@ -1,2 +1,2 @@
-{'src/*', [debug_info, {d, '@NIF@'}, {outdir, "ebin"}, {i, "include/"}]}.
+{'src/*', [debug_info, {d, '@NIF@'}, {d, '@TMP_SUP@'}, {outdir, "ebin"}, {i, "include/"}]}.
 {'examples/*', [debug_info, {outdir, "ebin/examples"}, {i, "include"}, {pz, "ebin"}]}.
