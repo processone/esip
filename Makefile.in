@@ -25,7 +25,11 @@ ifeq ($(shell uname),SunOs)
     DYNAMIC_LIB_CFLAGS = -KPIC -G -z text
 endif
 
+ifeq (@NIF@, USE_NIF)
 all: src esip_codec.so
+else
+all: src
+endif
 
 src: beams
 
