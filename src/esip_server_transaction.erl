@@ -33,16 +33,13 @@
 %%====================================================================
 %% API
 %%====================================================================
-start_link(SIPSocket, Branch) ->
-    gen_fsm:start_link(?MODULE, [SIPSocket, Branch], []).
+start_link(SIPSocket, Request) ->
+    gen_fsm:start_link(?MODULE, [SIPSocket, Request], []).
 
 start(SIPSocket, Request) ->
-    Branch = esip:get_branch(Request#sip.hdrs),
     case esip_tmp_sup:start_child(esip_server_transaction_sup,
-                                  ?MODULE, gen_fsm, [SIPSocket, Branch]) of
+                                  ?MODULE, gen_fsm, [SIPSocket, Request]) of
         {ok, Pid} ->
-            esip_transaction:insert(Branch, Request#sip.method, server, Pid),
-            gen_fsm:send_event(Pid, Request),
             {ok, make_trid(Pid)};
         Err ->
             Err
@@ -57,9 +54,12 @@ stop(Pid) ->
 %%====================================================================
 %% gen_fsm callbacks
 %%====================================================================
-init([SIPSock, Branch]) ->
+init([SIPSock, Request]) ->
+    Branch = esip:get_branch(Request#sip.hdrs),
     State = #state{sock = SIPSock, branch = Branch},
+    gen_fsm:send_event(self(), Request),
     erlang:send_after(?MAX_TRANSACTION_LIFETIME, self(), timeout),
+    esip_transaction:insert(Branch, Request#sip.method, server, self()),
     {ok, trying, State}.
 
 trying(#sip{method = <<"CANCEL">> = Method, type = request} = Req, State) ->

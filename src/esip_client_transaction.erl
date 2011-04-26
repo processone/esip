@@ -11,7 +11,7 @@
 -behaviour(gen_fsm).
 
 %% API
--export([start_link/2, start/2, start/3, stop/1, route/2, cancel/2]).
+-export([start_link/3, start/2, start/3, stop/1, route/2, cancel/2]).
 
 %% gen_fsm callbacks
 -export([init/1, handle_event/3, handle_sync_event/4,
@@ -33,17 +33,16 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-start_link(TU, SIPSocket) ->
-    gen_fsm:start_link(?MODULE, [TU, SIPSocket], []).
+start_link(Request, TU, Opts) ->
+    gen_fsm:start_link(?MODULE, [Request, TU, Opts], []).
 
 start(Request, TU) ->
     start(Request, TU, []).
 
 start(Request, TU, Opts) ->
     case esip_tmp_sup:start_child(esip_client_transaction_sup,
-                                  ?MODULE, gen_fsm, [TU, Opts]) of
+                                  ?MODULE, gen_fsm, [Request, TU, Opts]) of
         {ok, Pid} ->
-            gen_fsm:send_event(Pid, Request),
             {ok, make_trid(Pid)};
         Err ->
             Err
@@ -61,11 +60,12 @@ stop(Pid) ->
 %%%===================================================================
 %%% gen_fsm callbacks
 %%%===================================================================
-init([TU, Opts]) ->
+init([Request, TU, Opts]) ->
     SIPSocket = case lists:keysearch(socket, 1, Opts) of
                     {value, {_, S}} -> S;
                     _ -> undefined
                 end,
+    gen_fsm:send_event(self(), Request),
     erlang:send_after(?MAX_TRANSACTION_LIFETIME, self(), timeout),
     {ok, trying, #state{tu = TU, sock = SIPSocket}}.
 
