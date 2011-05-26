@@ -426,15 +426,12 @@ prepare_request(#sip_socket{peer = {Addr, Port}, type = SockType},
             case is_valid_via(Via, SockType)
                 andalso is_valid_hdrs(RestHdrs) of
                 true ->
-                    Params1 = case inet_parse:address(
-                                     binary_to_list(Host)) of
+                    Params1 = case host_to_ip(Host) of
                                   {ok, Addr} ->
                                       Params;
                                   _ ->
-                                      AddrBin = list_to_binary(
-                                                  inet_parse:ntoa(Addr)),
                                       esip:set_param(<<"received">>,
-                                                     AddrBin,
+                                                     ip_to_host(Addr),
                                                      Params)
                               end,
                     Params2 = case esip:get_param(<<"rport">>, Params1, false) of
@@ -537,6 +534,14 @@ host_to_ip(Host) ->
         _ ->
             inet_parse:address(Host)
     end.
+
+ip_to_host({0,0,0,0,0,16#ffff,X,Y}) ->
+    <<A, B, C, D>> = <<X:16, Y:16>>,
+    ip_to_host({A, B, C, D});
+ip_to_host({_, _, _, _} = Addr) ->
+    list_to_binary(inet_parse:ntoa(Addr));
+ip_to_host(Addr) ->
+    esip_codec:to_lower(list_to_binary(inet_parse:ntoa(Addr))).
 
 srv_prefix(tls) -> "_sips._tcp.";
 srv_prefix(tls_sctp) -> "_sips._sctp.";

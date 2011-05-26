@@ -34,7 +34,27 @@ start(State) ->
     gen_server:start(?MODULE, [State], []).
 
 send(Sock, {Addr, Port}, Data) ->
-    gen_udp:send(Sock, Addr, Port, Data).
+    NewAddr = case Addr of
+                  {A, B, C, D} ->
+                      case inet:sockname(Sock) of
+                          {ok, {{_, _, _, _, _, _, _, _}, _}} ->
+                              {0, 0, 0, 0, 0, 16#ffff,
+                               (A bsl 8) bor B, (C bsl 8) bor D};
+                          _ ->
+                              Addr
+                      end;
+                  {0, 0, 0, 0, 0, 16#ffff, X, Y} ->
+                      case inet:sockname(Sock) of
+                          {ok, {{_, _, _, _}, _}} ->
+                              <<A, B, C, D>> = <<X:16, Y:16>>,
+                              {A, B, C, D};
+                          _ ->
+                              Addr
+                      end;
+                  _ ->
+                      Addr
+              end,
+    gen_udp:send(Sock, NewAddr, Port, Data).
 
 connect([AddrPort|_Addrs], Sock) ->
     {ok, Sock#sip_socket{peer = AddrPort}}.
