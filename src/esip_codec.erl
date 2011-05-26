@@ -25,6 +25,7 @@
          str/2,
          escape/1,
          unescape/1,
+         strcasecmp/2,
          to_hex/1]).
 
 %% Test
@@ -427,19 +428,19 @@ decode_start_line(Data) ->
 decode_hdrs(Data, {Method, Acc}) ->
     case erlang:decode_packet(httph_bin, Data, []) of
         {ok, {http_header, _, Name, _, Value}, Rest} ->
-            HdrName = if is_atom(Name) ->
-                              Name;
-                         true ->
-                              to_lower(Name)
-                      end,
-            case catch decode_hdr(HdrName, Value) of
+            LName = if is_atom(Name) ->
+                            Name;
+                       true ->
+                            to_lower(Name)
+                    end,
+            case catch decode_hdr(LName, Value) of
                 {'EXIT', _} ->
-                    HdrName1 = if is_atom(HdrName) ->
-                                       atom_to_binary1(HdrName);
-                                  true ->
-                                       HdrName
-                               end,
-                    decode_hdrs(Rest, {Method, [{HdrName1, Value}|Acc]});
+                    HdrName = if is_atom(Name) ->
+                                      atom_to_binary1(Name);
+                                 true ->
+                                      Name
+                              end,
+                    decode_hdrs(Rest, {Method, [{HdrName, Value}|Acc]});
                 {cseq, CSeq, M} ->
                     decode_hdrs(Rest, {M, [{'cseq', CSeq}|Acc]});
                 Result ->
@@ -756,11 +757,7 @@ decode_hdr(<<"k">>, Val) ->
 decode_hdr(<<"t">>, Val) ->
     decode_hdr(<<"to">>, Val);
 decode_hdr(<<"v">>, Val) ->
-    decode_hdr('Via', Val);
-decode_hdr(Key, Val) when is_atom(Key) ->
-    {atom_to_binary1(Key), Val};
-decode_hdr(Key, Val) ->
-    {Key, Val}.
+    decode_hdr('Via', Val).
 
 encode_hdrs(Hdrs, Method) ->
     lists:map(
@@ -1095,6 +1092,9 @@ to_lower(Bin) ->
 
 to_upper(Bin) ->
     list_to_binary(string:to_upper(binary_to_list(Bin))).
+
+strcasecmp(Bin1, Bin2) ->
+    to_lower(Bin1) == to_lower(Bin2).
 
 to_integer(Bin, Min, Max) ->
     case catch list_to_integer(binary_to_list(Bin)) of

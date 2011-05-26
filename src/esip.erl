@@ -272,120 +272,41 @@ encode_uri_field(URI) ->
 match(Arg1, Arg2) ->
     esip_codec:match(Arg1, Arg2).
 
-rm_hdr(Key, Hdrs) ->
-    lists:filter(
-      fun({K, _}) ->
-              K /= Key
-      end, Hdrs).
+rm_hdr(Hdr, Hdrs) ->
+    rm_key(Hdr, Hdrs).
 
-add_hdr(Key, Val, Hdrs) ->
-    case lists:foldl(
-           fun({K, V}, {false, Acc}) when K == Key ->
-                   {true, [{K, V}, {Key, Val}|Acc]};
-              (KV, {S, Acc}) ->
-                   {S, [KV|Acc]}
-           end, {false, []}, Hdrs) of
-        {true, Res} ->
-            lists:reverse(Res);
-        {false, Res} ->
-            lists:reverse([{Key, Val}|Res])
-    end.
+add_hdr(Hdr, Val, Hdrs) ->
+    add_key(Hdr, Val, Hdrs).
 
-set_hdr(Key, Val, Hdrs) ->
-    Res = lists:foldl(
-            fun({K, _}, Acc) when K == Key ->
-                    Acc;
-               (KV, Acc) ->
-                    [KV|Acc]
-            end, [], Hdrs),
-    lists:reverse([{Key, Val}|Res]).
+set_hdr(Hdr, Val, Hdrs) ->
+    set_key(Hdr, Val, Hdrs).
 
 get_hdr(Hdr, Hdrs) ->
-    get_hdr(Hdr, Hdrs, undefined).
+    get_key(Hdr, Hdrs, undefined).
 
 get_hdr(Hdr, Hdrs, Default) ->
-    case lists:keysearch(Hdr, 1, Hdrs) of
-        {value, {_, Val}} ->
-            Val;
-        false ->
-            Default
-    end.
+    get_key(Hdr, Hdrs, Default).
 
 get_hdrs(Hdr, Hdrs) ->
-    lists:flatmap(
-      fun({K, V}) when K == Hdr ->
-              if is_list(V) ->
-                      V;
-                 true ->
-                      [V]
-              end;
-         (_) ->
-              []
-      end, Hdrs).
+    get_keys(Hdr, Hdrs).
 
 filter_hdrs(HdrList, Hdrs) ->
-    lists:filter(
-      fun({Hdr, _}) ->
-              lists:member(Hdr, HdrList)
-      end, Hdrs).
+    filter_keys(HdrList, Hdrs).
 
-split_hdrs(HdrList, Hdrs) when is_list(HdrList) ->
-    lists:partition(
-      fun({Hdr, _}) ->
-              lists:member(Hdr, HdrList)
-      end, Hdrs);
-split_hdrs(Hdr, Hdrs) ->
-    lists:foldr(
-      fun({K, V}, {H, T}) when K == Hdr ->
-              if is_list(V) ->
-                      {V++H, T};
-                 true ->
-                      {[V|H], T}
-              end;
-         ({K, V}, {H, T}) ->
-              {H, [{K, V}|T]}
-      end, {[], []}, Hdrs).
-
-get_param(Param, Params) ->
-    get_param(Param, Params, <<>>).
-
-get_param(Param, Params, Default) ->
-    case lists:keysearch(Param, 1, Params) of
-        {value, {_, Val}} ->
-            Val;
-        false ->
-            get_param_lower(Param, Params, Default)
-    end.
-
-get_param_lower(Param, [{P, Val}|Tail], Default) ->
-    case esip_codec:to_lower(P) of
-        Param ->
-            Val;
-        _ ->
-            get_param_lower(Param, Tail, Default)
-    end;
-get_param_lower(_, [], Default) ->
-    Default.
-
-has_param(Param, Params) ->
-    case get_param(Param, Params, undefined) of
-        undefined ->
-            false;
-        _ ->
-            true
-    end.
+split_hdrs(HdrOrHdrList, Hdrs) ->
+    split_keys(HdrOrHdrList, Hdrs).
 
 set_param(Param, Val, Params) ->
-    Res = lists:foldl(
-            fun({P, V}, Acc) ->
-                    case esip_codec:to_lower(P) of
-                        Param ->
-                            Acc;
-                        _ ->
-                            [{P, V}|Acc]
-                    end
-            end, [], Params),
-    lists:reverse([{Param, Val}|Res]).
+    set_key(Param, Val, Params).
+
+get_param(Param, Params) ->
+    get_key(Param, Params, <<>>).
+
+get_param(Param, Params, Default) ->
+    get_key(Param, Params, Default).
+
+has_param(Param, Params) ->
+    has_key(Param, Params).
 
 get_branch(Hdrs) ->
     [Via|_] = get_hdr('via', Hdrs),
@@ -400,6 +321,118 @@ escape(Bin) ->
 
 unescape(Bin) ->
     esip_codec:unescape(Bin).
+
+is_equal(K1, K2) when is_binary(K1), is_binary(K2) ->
+    esip_codec:strcasecmp(K1, K2);
+is_equal(K1, K2) ->
+    K1 == K2.
+
+member(X, [Y|T]) ->
+    case is_equal(X, Y) of
+        true ->
+            true;
+        _ ->
+            member(X, T)
+    end;
+member(_X, []) ->
+    false.
+
+keysearch(_K, []) ->
+    error;
+keysearch(K, [{K1, V}|T]) ->
+    case is_equal(K, K1) of
+        true ->
+            {ok, V};
+        false ->
+            keysearch(K, T)
+    end.
+
+rm_key(Key, Keys) ->
+    lists:filter(
+      fun({K, _}) ->
+              not is_equal(Key, K)
+      end, Keys).
+
+set_key(Key, Val, Keys) ->
+    Res = lists:foldl(
+            fun({K, V}, Acc) ->
+                    case is_equal(K, Key) of
+                        true ->                          
+                            Acc;
+                        false ->
+                            [{K, V}|Acc]
+                    end
+            end, [], Keys),
+    lists:reverse([{Key, Val}|Res]).
+
+get_key(Key, Keys, Default) ->
+    case keysearch(Key, Keys) of
+        {ok, Val} ->
+            Val;
+        _ ->
+            Default
+    end.
+
+has_key(Key, Keys) ->
+    case get_key(Key, Keys, undefined) of
+        undefined ->
+            false;
+        _ ->
+            true
+    end.
+
+add_key(Key, Val, Keys) ->
+    case lists:foldl(
+           fun({K, V}, {S, Acc}) ->
+                   case S == false andalso is_equal(K, Key) of
+                       true ->
+                           {true, [{K, V}, {Key, Val}|Acc]};
+                       false ->
+                           {S, [{K, V}|Acc]}
+                   end
+           end, {false, []}, Keys) of
+        {true, Res} ->
+            lists:reverse(Res);
+        {false, Res} ->
+            lists:reverse([{Key, Val}|Res])
+    end.
+
+get_keys(Key, Keys) ->
+    lists:flatmap(
+      fun({K, V}) ->
+              case is_equal(K, Key) of
+                  true when is_list(V) ->
+                      V;
+                  true ->
+                      [V];
+                  false ->
+                      []
+              end
+      end, Keys).
+
+filter_keys(KeyList, Keys) ->
+    lists:filter(
+      fun({Key, _}) ->
+              member(Key, KeyList)
+      end, Keys).
+
+split_keys(KeyList, Keys) when is_list(KeyList) ->
+    lists:partition(
+      fun({Key, _}) ->
+              member(Key, KeyList)
+      end, Keys);
+split_keys(Key, Keys) ->
+    lists:foldr(
+      fun({K, V}, {H, T}) ->
+              case is_equal(K, Key) of
+                  true when is_list(V) ->
+                      {V++H, T};
+                  true ->
+                      {[V|H], T};
+                  false ->
+                      {H, [{K, V}|T]}
+              end
+      end, {[], []}, Keys).
 
 make_contact() ->
     esip_transport:make_contact().

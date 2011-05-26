@@ -23,6 +23,8 @@
 #define IN 1
 
 static ERL_NIF_TERM atom_wsp;
+static ERL_NIF_TERM atom_true;
+static ERL_NIF_TERM atom_false;
 
 struct buf {
   int limit;
@@ -38,6 +40,8 @@ struct list {
 static int load(ErlNifEnv* env, void** priv, ERL_NIF_TERM load_info)
 {
   atom_wsp = enif_make_atom(env, "wsp");
+  atom_true = enif_make_atom(env, "true");
+  atom_false = enif_make_atom(env, "false");
   return 0;
 }
 
@@ -262,6 +266,27 @@ static ERL_NIF_TERM str(ErlNifEnv* env, int argc,
   return enif_make_badarg(env);
 }
 
+static ERL_NIF_TERM strcasecmp_erl(ErlNifEnv* env, int argc,
+				   const ERL_NIF_TERM argv[])
+{
+    ErlNifBinary b1, b2;
+
+    if (argc == 2) {
+	if (enif_inspect_iolist_as_binary(env, argv[0], &b1) &&
+	    enif_inspect_iolist_as_binary(env, argv[1], &b2)) {
+	    if (b1.size == b2.size) {
+		if (!strncasecmp((char *)b1.data, (char *)b2.data, b1.size))
+		    return atom_true;
+		else
+		    return atom_false;
+	    } else
+		return atom_false;
+	}
+    }
+
+    return enif_make_badarg(env);
+}
+
 inline struct list *add_to_acc(ErlNifEnv* env, struct buf *buf,
 			       struct list *acc, unsigned chr)
 {
@@ -385,6 +410,7 @@ static ErlNifFunc nif_funcs[] =
     {"strip_wsp_left", 1, strip_wsp_left},
     {"strip_wsp_right", 1, strip_wsp_right},
     {"str", 2, str},
+    {"strcasecmp", 2, strcasecmp_erl},
     {"split", 3, split}
   };
 
