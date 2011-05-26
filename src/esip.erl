@@ -322,29 +322,54 @@ escape(Bin) ->
 unescape(Bin) ->
     esip_codec:unescape(Bin).
 
+-compile({inline, [{is_equal, 2},
+                   {member, 2},
+                   {keysearch, 2}]}).
+
 is_equal(K1, K2) when is_binary(K1), is_binary(K2) ->
     esip_codec:strcasecmp(K1, K2);
 is_equal(K1, K2) ->
     K1 == K2.
 
-member(X, [Y|T]) ->
+member(X, Xs) ->
+    if is_atom(X) ->
+            %% lists:member/2 is BIF, so works faster
+            lists:member(X, Xs);
+       true ->
+            member1(X, Xs)
+    end.
+
+member1(X, [Y|T]) ->
     case is_equal(X, Y) of
         true ->
             true;
         _ ->
-            member(X, T)
+            member1(X, T)
     end;
-member(_X, []) ->
+member1(_X, []) ->
     false.
 
-keysearch(_K, []) ->
+keysearch(K, Ks) ->
+    if is_atom(K) ->
+            %% lists:keysearch/3 is a BIF, so works faster
+            case lists:keysearch(K, 1, Ks) of
+                {value, {_, Val}} ->
+                    {ok, Val};
+                _ ->
+                    error
+            end;
+       true ->
+            keysearch1(K, Ks)
+    end.
+
+keysearch1(_K, []) ->
     error;
-keysearch(K, [{K1, V}|T]) ->
+keysearch1(K, [{K1, V}|T]) ->
     case is_equal(K, K1) of
         true ->
             {ok, V};
         false ->
-            keysearch(K, T)
+            keysearch1(K, T)
     end.
 
 rm_key(Key, Keys) ->
