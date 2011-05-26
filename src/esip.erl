@@ -659,6 +659,10 @@ error_status(no_contact_header) ->
     {400, <<"Missed Contact header">>};
 error_status(too_many_transactions) ->
     {500, <<"Too Many Transactions">>};
+error_status(unsupported_uri_scheme) ->
+    {416, reason(416)};
+error_status(unsupported_transport) ->
+    {503, "Unsupported Transport"};
 error_status(Err) when is_atom(Err) ->
     case inet:format_error(Err) of
         "unknown POSIX error" ->
