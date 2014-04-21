@@ -94,8 +94,8 @@ trying(#sip{type = request, method = Method} = Request, State) ->
                 _ ->
                     {stop, normal, NewState}
             end;
-        Err ->
-            pass_to_transaction_user(State#state{req = Request}, Err),
+        {error, Err, NewRequest} ->
+            pass_to_transaction_user(State#state{req = NewRequest}, Err),
             {stop, normal, State}
     end;
 trying({timer_A, T}, State) ->
@@ -282,19 +282,20 @@ send_ack(_, _) ->
     ok.
 
 connect(#state{sock = undefined}, #sip{hdrs = Hdrs} = Req) ->
+    VHost = case esip:get_hdr('from', Hdrs) of
+		{_, #uri{host = Host}, _} ->
+		    Host;
+		_ ->
+		    undefined
+	    end,
+    Branch = esip:make_branch(Hdrs),
+    NewHdrs = [esip_transport:make_via_hdr(VHost, Branch)|Hdrs],
+    NewReq = Req#sip{hdrs = NewHdrs},
     case esip_transport:connect(Req) of
         {ok, SIPSocket} ->
-            VHost = case esip:get_hdr('from', Hdrs) of
-                        {_, #uri{host = Host}, _} ->
-                            Host;
-                        _ ->
-                            undefined
-                    end,
-            Branch = esip:make_branch(Hdrs),
-            NewHdrs = [esip_transport:make_via_hdr(VHost, Branch)|Hdrs],
-            {ok, SIPSocket, Req#sip{hdrs = NewHdrs}, Branch};
+            {ok, SIPSocket, NewReq, Branch};
         Err ->
-            Err
+            {error, Err, NewReq}
     end;
 connect(#state{sock = SIPSocket}, #sip{method = <<"CANCEL">>, hdrs = Hdrs} = Req) ->
     {[Via|_], TailHdrs} = esip:split_hdrs('via', Hdrs),
