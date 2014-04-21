@@ -20,9 +20,9 @@
                  state}).
 
 -define(ERROR_MSG(Format, Args),
-	error_logger:error_msg("(~p:~p:~p) " ++ Format ++ "~n",
+	error_logger:error_msg("(~p:~p:~p) " ++ Format,
 			       [self(), ?MODULE, ?LINE | Args])).
 
 -define(INFO_MSG(Format, Args),
-	error_logger:info_msg("(~p:~p:~p) " ++ Format ++ "~n",
+	error_logger:info_msg("(~p:~p:~p) " ++ Format,
 			       [self(), ?MODULE, ?LINE | Args])).
