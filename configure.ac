@@ -3,19 +3,6 @@ AC_PACKAGE_VERSION(0.1.0)
 AC_PACKAGE_NAME(esip)
 AC_INIT(esip, 0.1.0, [], esip)
 
-# Checks Erlang runtime and compiler
-AC_ERLANG_NEED_ERL
-AC_ERLANG_NEED_ERLC
-
-# Checks and sets ERLANG_ROOT_DIR and ERLANG_LIB_DIR variable
-AC_ERLANG_SUBST_ROOT_DIR
-AC_ERLANG_SUBST_LIB_DIR
-AC_ERLANG_SUBST_ERTS_VER
-
-# Checks for Erlang 'tools' library since make.erl is a part of it
-AC_ERLANG_CHECK_LIB([tools], [],
-    [AC_MSG_ERROR(['tools' was not found, unable to build Emakefile])])
-
 # Checks for programs.
 AC_PROG_CC
 AC_PROG_MAKE_SET
@@ -31,47 +18,12 @@ AC_C_CONST
 AC_FUNC_MALLOC
 AC_HEADER_STDC
 
-AC_ARG_ENABLE(tmp_supervisors,
-[AC_HELP_STRING([--disable-tmp-supervisors], [disable temporary supervisors \
-					     (default: enabled)])],
-[TMP_SUP=NO_TMP_SUP], [])
+# Checks Erlang runtime and compiler
+AC_ERLANG_NEED_ERL
+AC_ERLANG_NEED_ERLC
 
-AC_CHECK_HEADER(erl_nif.h,
-		# Use old-style NIFs if Erlang <= R13B4
-		[AS_VERSION_COMPARE(5.7.5, $ERLANG_ERTS_VER, [],
-				    [CFLAGS="$CFLAGS -DNIF_OLD"],
-				    [CFLAGS="$CFLAGS -DNIF_OLD"])
-		 NIF=USE_NIF],
-		[])
-
-AC_SUBST(NIF)
-AC_SUBST(TMP_SUP)
-
-AC_CANONICAL_SYSTEM
-case "$target_os" in
-    *darwin10*)
-	echo "Target OS is 'Darwin10'"
-	AC_LANG(Erlang)
-	AC_RUN_IFELSE(
-	    [AC_LANG_PROGRAM([],[dnl
-	     halt(case erlang:system_info(wordsize) of
-	     8 -> 0; 4 -> 1 end)])],
-	    [AC_MSG_NOTICE(found 64-bit Erlang)
-	     CBIT=-m64],
-	    [AC_MSG_NOTICE(found 32-bit Erlang)
-	     CBIT=-m32])
-	;;
-    *)        
-	echo "Target OS is '$target_os'"
-	CBIT=""
-	;;
-esac
-CFLAGS="$CFLAGS $CBIT"
-LD_SHARED="$LD_SHARED $CBIT"
-echo "CBIT is set to '$CBIT'"
-
-AC_CONFIG_FILES([Makefile
-		 Emakefile
-		 ebin/esip.app])
+# Checks and sets ERLANG_ROOT_DIR and ERLANG_LIB_DIR variable
+# AC_ERLANG_SUBST_ROOT_DIR
+# AC_ERLANG_SUBST_LIB_DIR
 
 AC_OUTPUT
