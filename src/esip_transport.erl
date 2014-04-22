@@ -13,7 +13,7 @@
 -export([recv/2, send/1, send/2, connect/2, start_link/0,
          register_socket/3, unregister_socket/3,
          register_udp_listener/1, unregister_udp_listener/1,
-         make_via_hdr/1, make_via_hdr/2, connect/1,
+         make_via_hdr/3, connect/1,
          register_route/4, unregister_route/4,
          make_contact/0, make_contact/1, make_contact/2,
          have_route/3, via_transport_to_atom/1]).
@@ -71,21 +71,13 @@ recv(SIPSock, #sip{type = response} = Resp) ->
 send(Msg) ->
     send(Msg, []).
 
-send(#sip_socket{type = Transport} = SIPSock, Msg) ->
+send(#sip_socket{} = SIPSock, Msg) ->
     NewMsg = case esip:callback(message_out, [Msg, SIPSock]) of
                  drop -> ok;
                  Msg1 = #sip{} -> Msg1;
                  _ -> Msg
              end,
-    case NewMsg of
-        #sip{type = request, hdrs = Hdrs} ->
-            NewHdrs = fix_topmost_via(Transport, Hdrs),
-            do_send(SIPSock, NewMsg#sip{hdrs = NewHdrs});
-        #sip{} ->
-            do_send(SIPSock, NewMsg);
-        _ ->
-            ok
-    end;
+    do_send(SIPSock, NewMsg);
 send(#sip{} = SIPMsg, Opts) ->
     case lists:keysearch(socket, 1, Opts) of
         {value, {_, SIPSocket}} ->
@@ -274,31 +266,27 @@ get_all_routes(VirtualHost) ->
             get_all_routes(undefined)
     end.
 
-make_via_hdr(VirtualHost) ->
-    make_via_hdr(VirtualHost, esip:make_branch()).
-
-make_via_hdr(VirtualHost, Branch) ->
-    case get_route(VirtualHost) of
-        {ok, Transport, Host, Port} ->
-            {'via', [#via{transport = atom_to_via_transport(Transport),
-                          host = Host,
-                          port = Port,
-                          params = [{<<"branch">>, Branch},
-                                    {<<"rport">>, <<>>}]}]};
-        error ->
-            {'via', []}
-    end.
-
 make_via_hdr(VirtualHost, Branch, Transport) ->
     case get_route(VirtualHost, Transport) of
         {ok, _, Host, Port} ->
-            {'via', [#via{transport = atom_to_via_transport(Transport),
-                          host = Host,
-                          port = Port,
-                          params = [{<<"branch">>, Branch},
-                                    {<<"rport">>, <<>>}]}]};
+            {ok, [#via{transport = atom_to_via_transport(Transport),
+		       host = Host,
+		       port = Port,
+		       params = [{<<"branch">>, Branch},
+				 {<<"rport">>, <<>>}]}]};
         error ->
-            {'via', []}
+	    case ets:match_object(esip_route,
+				  #route{transport = Transport,
+					 _ = '_'}) of
+		[#route{host = Host, port = Port}|_] ->
+		    {ok, [#via{transport = atom_to_via_transport(Transport),
+			       host = Host,
+			       port = Port,
+			       params = [{<<"branch">>, Branch},
+					 {<<"rport">>, <<>>}]}]};
+		[] ->
+		    {error, unsupported_transport}
+	    end
     end.
 
 make_contact() ->
@@ -330,41 +318,6 @@ make_contact(VirtualHost, Transport) ->
                          port = Port, params = Params}, []}];
         _ ->
             []
-    end.
-
-fix_topmost_via(Transport, Hdrs) ->
-    VirtualHost = case esip:get_hdr('from', Hdrs) of
-                      {_, #uri{host = VHost}, _} ->
-                          VHost;
-                      _ ->
-                          undefined
-                  end,
-    case esip:split_hdrs('via', Hdrs) of
-        {[], RestHdrs} ->
-            [make_via_hdr(VirtualHost, esip:make_branch(), Transport)|RestHdrs];
-        {[Via|Vias], RestHdrs} ->
-            NewVia = fix_via(Via, VirtualHost, Transport),
-            [{'via', [NewVia|Vias]}|RestHdrs]
-    end.
-
-fix_via(#via{transport = ViaT, host = Host, port = Port} = Via, VHost, T) ->
-    case via_transport_to_atom(ViaT) of
-        T ->
-            Via;
-        T1 ->
-            case have_route(T1, Host, Port) of
-                true ->
-                    case get_route(VHost, T) of
-                        {ok, _, NewHost, NewPort} ->
-                            Via#via{host = NewHost,
-                                    port = NewPort,
-                                    transport = atom_to_via_transport(T)};
-                        _ ->
-                            Via
-                    end;
-                _ ->
-                    Via
-            end
     end.
 
 supported_transports(VirtualHost) ->

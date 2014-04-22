@@ -94,7 +94,7 @@ trying(#sip{type = request, method = Method} = Request, State) ->
                 _ ->
                     {stop, normal, NewState}
             end;
-        {error, Err, NewRequest} ->
+        {{error, Err}, NewRequest} ->
             pass_to_transaction_user(State#state{req = NewRequest}, Err),
             {stop, normal, State}
     end;
@@ -249,12 +249,15 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 pass_to_transaction_user(#state{tu = TU, req = Req, sock = Sock}, Resp) ->
+    Hdrs = Req#sip.hdrs,
+    {[_|Via], Hdrs1} = esip:split_hdrs('via', Hdrs),
+    NewReq = Req#sip{hdrs = [{'via', Via}|Hdrs1]},
     TrID = make_trid(),
     case TU of
         F when is_function(F) ->
-            esip:callback(F, [Resp, Req, Sock, TrID]);
+            esip:callback(F, [Resp, NewReq, Sock, TrID]);
         {M, F, A} ->
-            esip:callback(M, F, [Resp, Req, Sock, TrID | A]);
+            esip:callback(M, F, [Resp, NewReq, Sock, TrID | A]);
         _ ->
             TU
     end.
@@ -281,21 +284,12 @@ send_ack(#state{req = #sip{uri = URI, hdrs = Hdrs,
 send_ack(_, _) ->
     ok.
 
-connect(#state{sock = undefined}, #sip{hdrs = Hdrs} = Req) ->
-    VHost = case esip:get_hdr('from', Hdrs) of
-		{_, #uri{host = Host}, _} ->
-		    Host;
-		_ ->
-		    undefined
-	    end,
-    Branch = esip:make_branch(Hdrs),
-    NewHdrs = [esip_transport:make_via_hdr(VHost, Branch)|Hdrs],
-    NewReq = Req#sip{hdrs = NewHdrs},
+connect(#state{sock = undefined} = State, Req) ->
     case esip_transport:connect(Req) of
-        {ok, SIPSocket} ->
-            {ok, SIPSocket, NewReq, Branch};
-        Err ->
-            {error, Err, NewReq}
+	{ok, SIPSocket} ->
+	    connect(State#state{sock = SIPSocket}, Req);
+	{error, _} = Err ->
+	    connect(Err, Req)
     end;
 connect(#state{sock = SIPSocket}, #sip{method = <<"CANCEL">>, hdrs = Hdrs} = Req) ->
     {[Via|_], TailHdrs} = esip:split_hdrs('via', Hdrs),
@@ -308,15 +302,24 @@ connect(#state{sock = SIPSocket}, #sip{hdrs = Hdrs} = Req) ->
                 _ ->
                     undefined
             end,
+    Transport = SIPSocket#sip_socket.type,
     Branch = esip:make_branch(Hdrs),
-    NewHdrs = [esip_transport:make_via_hdr(VHost, Branch)|Hdrs],
-    {ok, SIPSocket, Req#sip{hdrs = NewHdrs}, Branch}.
+    case esip_transport:make_via_hdr(VHost, Branch, Transport) of
+	{ok, ViaHdr} ->
+	    NewReq = Req#sip{hdrs = [{'via', ViaHdr}|Hdrs]},
+	    {ok, SIPSocket, NewReq, Branch};
+	{error, _} = Err ->
+	    connect(Err, Req)
+    end;
+connect({error, _} = Err, #sip{hdrs = Hdrs} = Req) ->
+    NewReq = Req#sip{hdrs = [{'via', []}|Hdrs]},
+    {Err, NewReq}.
 
 send(State, Resp) ->
     case esip_transport:send(State#state.sock, Resp) of
         ok ->
             ok;
-        Err ->
+        {error, _} = Err ->
             pass_to_transaction_user(State, Err),
             Err
     end.
