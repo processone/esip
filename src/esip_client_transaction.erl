@@ -44,7 +44,7 @@ start(Request, TU, Opts) ->
                                   ?MODULE, gen_fsm, [Request, TU, Opts]) of
         {ok, Pid} ->
             {ok, make_trid(Pid)};
-        Err ->
+	{error, _} = Err ->
             Err
     end.
 
@@ -94,8 +94,8 @@ trying(#sip{type = request, method = Method} = Request, State) ->
                 _ ->
                     {stop, normal, NewState}
             end;
-        {{error, Err}, NewRequest} ->
-            pass_to_transaction_user(State#state{req = NewRequest}, Err),
+        {error, _} = Err ->
+            pass_to_transaction_user(State#state{req = Request}, Err),
             {stop, normal, State}
     end;
 trying({timer_A, T}, State) ->
@@ -249,15 +249,12 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 pass_to_transaction_user(#state{tu = TU, req = Req, sock = Sock}, Resp) ->
-    Hdrs = Req#sip.hdrs,
-    {[_|Via], Hdrs1} = esip:split_hdrs('via', Hdrs),
-    NewReq = Req#sip{hdrs = [{'via', Via}|Hdrs1]},
     TrID = make_trid(),
     case TU of
         F when is_function(F) ->
-            esip:callback(F, [Resp, NewReq, Sock, TrID]);
+            esip:callback(F, [Resp, Req, Sock, TrID]);
         {M, F, A} ->
-            esip:callback(M, F, [Resp, NewReq, Sock, TrID | A]);
+            esip:callback(M, F, [Resp, Req, Sock, TrID | A]);
         _ ->
             TU
     end.
@@ -311,9 +308,8 @@ connect(#state{sock = SIPSocket}, #sip{hdrs = Hdrs} = Req) ->
 	{error, _} = Err ->
 	    connect(Err, Req)
     end;
-connect({error, _} = Err, #sip{hdrs = Hdrs} = Req) ->
-    NewReq = Req#sip{hdrs = [{'via', []}|Hdrs]},
-    {Err, NewReq}.
+connect({error, _} = Err, _Req) ->
+    Err.
 
 send(State, Resp) ->
     case esip_transport:send(State#state.sock, Resp) of
