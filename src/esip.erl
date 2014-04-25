@@ -177,10 +177,32 @@ send(ReqOrResp) ->
     send(ReqOrResp, []).
 
 send(#sip{type = request, hdrs = Hdrs} = Req, Opts) ->
-    {_, #uri{host = VHost}, _} = get_hdr('from', Hdrs),
-    Branch = esip:make_branch(Hdrs),
-    NewHdrs = [esip_transport:make_via_hdr(VHost, Branch)|Hdrs],
-    esip_transport:send(Req#sip{hdrs = NewHdrs}, Opts);
+    Res = case lists:keysearch(socket, 1, Opts) of
+	      {value, {_, S}} ->
+		  {ok, S};
+	      _ ->
+		  esip_transport:connect(Req)
+	  end,
+    case Res of
+	{ok, SIPSocket} ->
+	    VHost = case esip:get_hdr('from', Hdrs) of
+			{_, #uri{host = Host}, _} ->
+			    Host;
+			_ ->
+			    undefined
+		    end,
+	    Transport = SIPSocket#sip_socket.type,
+	    Branch = esip:make_branch(Hdrs),
+	    case esip_transport:make_via_hdr(VHost, Branch, Transport) of
+		{ok, ViaHdr} ->
+		    NewReq = Req#sip{hdrs = [{'via', ViaHdr}|Hdrs]},
+		    esip_transport:send(SIPSocket, NewReq);
+		Err ->
+		    Err
+	    end;
+	Err ->
+	    Err
+    end;
 send(Resp, Opts) ->
     esip_transport:send(Resp, Opts).
 
