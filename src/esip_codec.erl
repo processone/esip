@@ -549,56 +549,56 @@ decode_hdr(<<"min-se">>, Val) ->
     {'min-se', {N, Params}};
 decode_hdr(<<"organization">>, Val) ->
     {'organization', Val};
-decode_hdr(<<"p-access-network-info">>, Val) ->
-    {'p-access-network-info', decode_type_params(Val)};
-decode_hdr(<<"p-answer-state">>, Val) ->
-    {'p-answer-state', decode_type_params(Val)};
-decode_hdr(<<"p-asserted-identity">>, Val) ->
-    {'p-asserted-identity', [_|_] = decode_uri_field(Val)};
-decode_hdr(<<"p-asserted-service">>, Val) ->
-    {'p-asserted-service', split(Val, $,)};
-decode_hdr(<<"p-associated-uri">>, Val) ->
-    {'p-associated-uri', [_|_] = decode_uri_field(Val)};
-decode_hdr(<<"p-called-party-id">>, Val) ->
-    [URI|_] = decode_uri_field(Val),
-    {'p-called-party-id', URI};
-decode_hdr(<<"p-charging-function-addresses">>, Val) ->
-    {'p-charging-function-addresses', decode_params(Val)};
-decode_hdr(<<"p-charging-vector">>, Val) ->
-    {'p-charging-vector', decode_params(Val)};
-decode_hdr(<<"p-dcs-billing-info">>, Val) ->
-    {'p-dcs-billing-info', decode_type_params(Val)};
-decode_hdr(<<"p-dcs-laes">>, Val) ->
-    {'p-dcs-laes', decode_type_params(Val)};
-decode_hdr(<<"p-dcs-osps">>, Val) ->
-    {'p-dcs-osps', Val};
-decode_hdr(<<"p-dcs-redirect">>, Val) ->
-    [URI|_] = decode_uri_field(Val),
-    {'p-dcs-redirect', URI};
-decode_hdr(<<"p-dcs-trace-party-id">>, Val) ->
-    [URI|_] = decode_uri_field(Val),
-    {'p-dcs-trace-party-id', URI};
-decode_hdr(<<"p-early-media">>, Val) ->
-    {'p-early-media', split(Val, $,)};
-decode_hdr(<<"p-media-authorization">>, Val) ->
-    {'p-media-authorization', split(Val, $,)};
-decode_hdr(<<"p-preferred-identity">>, Val) ->
-    {'p-preferred-identity', [_|_] = decode_uri_field(Val)};
-decode_hdr(<<"p-preferred-service">>, Val) ->
-    {'p-preferred-service', split(Val, $,)};
-decode_hdr(<<"p-profile-key">>, Val) ->
-    [URI|_] = decode_uri_field(Val),
-    {'p-profile-key', URI};
-decode_hdr(<<"p-refused-uri-list">>, Val) ->
-    {'p-refused-uri-list', [_|_] = decode_uri_field(Val)};
-decode_hdr(<<"p-served-user">>, Val) ->
-    [URI|_] = decode_uri_field(Val),
-    {'p-served-user', URI};
-decode_hdr(<<"p-user-database">>, Val) ->
-    %% TODO
-    {'p-user-database', Val};
-decode_hdr(<<"p-visited-network-id">>, Val) ->
-    {'p-visited-network-id', split(Val, $,)};
+%% decode_hdr(<<"p-access-network-info">>, Val) ->
+%%     {'p-access-network-info', decode_type_params(Val)};
+%% decode_hdr(<<"p-answer-state">>, Val) ->
+%%     {'p-answer-state', decode_type_params(Val)};
+%% decode_hdr(<<"p-asserted-identity">>, Val) ->
+%%     {'p-asserted-identity', [_|_] = decode_uri_field(Val)};
+%% decode_hdr(<<"p-asserted-service">>, Val) ->
+%%     {'p-asserted-service', split(Val, $,)};
+%% decode_hdr(<<"p-associated-uri">>, Val) ->
+%%     {'p-associated-uri', [_|_] = decode_uri_field(Val)};
+%% decode_hdr(<<"p-called-party-id">>, Val) ->
+%%     [URI|_] = decode_uri_field(Val),
+%%     {'p-called-party-id', URI};
+%% decode_hdr(<<"p-charging-function-addresses">>, Val) ->
+%%     {'p-charging-function-addresses', decode_params(Val)};
+%% decode_hdr(<<"p-charging-vector">>, Val) ->
+%%     {'p-charging-vector', decode_params(Val)};
+%% decode_hdr(<<"p-dcs-billing-info">>, Val) ->
+%%     {'p-dcs-billing-info', decode_type_params(Val)};
+%% decode_hdr(<<"p-dcs-laes">>, Val) ->
+%%     {'p-dcs-laes', decode_type_params(Val)};
+%% decode_hdr(<<"p-dcs-osps">>, Val) ->
+%%     {'p-dcs-osps', Val};
+%% decode_hdr(<<"p-dcs-redirect">>, Val) ->
+%%     [URI|_] = decode_uri_field(Val),
+%%     {'p-dcs-redirect', URI};
+%% decode_hdr(<<"p-dcs-trace-party-id">>, Val) ->
+%%     [URI|_] = decode_uri_field(Val),
+%%     {'p-dcs-trace-party-id', URI};
+%% decode_hdr(<<"p-early-media">>, Val) ->
+%%     {'p-early-media', split(Val, $,)};
+%% decode_hdr(<<"p-media-authorization">>, Val) ->
+%%     {'p-media-authorization', split(Val, $,)};
+%% decode_hdr(<<"p-preferred-identity">>, Val) ->
+%%     {'p-preferred-identity', [_|_] = decode_uri_field(Val)};
+%% decode_hdr(<<"p-preferred-service">>, Val) ->
+%%     {'p-preferred-service', split(Val, $,)};
+%% decode_hdr(<<"p-profile-key">>, Val) ->
+%%     [URI|_] = decode_uri_field(Val),
+%%     {'p-profile-key', URI};
+%% decode_hdr(<<"p-refused-uri-list">>, Val) ->
+%%     {'p-refused-uri-list', [_|_] = decode_uri_field(Val)};
+%% decode_hdr(<<"p-served-user">>, Val) ->
+%%     [URI|_] = decode_uri_field(Val),
+%%     {'p-served-user', URI};
+%% decode_hdr(<<"p-user-database">>, Val) ->
+%%     %% TODO
+%%     {'p-user-database', Val};
+%% decode_hdr(<<"p-visited-network-id">>, Val) ->
+%%     {'p-visited-network-id', split(Val, $,)};
 decode_hdr(<<"path">>, Val) ->
     {'path', [_|_] = decode_uri_field(Val)};
 decode_hdr(<<"permission-missing">>, Val) ->
