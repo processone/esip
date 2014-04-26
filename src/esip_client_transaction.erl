@@ -248,13 +248,13 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-pass_to_transaction_user(#state{tu = TU, req = Req, sock = Sock}, Resp) ->
+pass_to_transaction_user(#state{tu = TU, sock = Sock}, Resp) ->
     TrID = make_trid(),
     case TU of
         F when is_function(F) ->
-            esip:callback(F, [Resp, Req, Sock, TrID]);
+            esip:callback(F, [Resp, Sock, TrID]);
         {M, F, A} ->
-            esip:callback(M, F, [Resp, Req, Sock, TrID | A]);
+            esip:callback(M, F, [Resp, Sock, TrID | A]);
         _ ->
             TU
     end.
@@ -286,30 +286,21 @@ connect(#state{sock = undefined} = State, Req) ->
 	{ok, SIPSocket} ->
 	    connect(State#state{sock = SIPSocket}, Req);
 	{error, _} = Err ->
-	    connect(Err, Req)
+	    Err
     end;
 connect(#state{sock = SIPSocket}, #sip{method = <<"CANCEL">>, hdrs = Hdrs} = Req) ->
     {[Via|_], TailHdrs} = esip:split_hdrs('via', Hdrs),
     Branch = esip:get_param(<<"branch">>, Via#via.params),
     {ok, SIPSocket, Req#sip{hdrs = [{'via', [Via]}|TailHdrs]}, Branch};
 connect(#state{sock = SIPSocket}, #sip{hdrs = Hdrs} = Req) ->
-    VHost = case esip:get_hdr('from', Hdrs) of
-                {_, #uri{host = Host}, _} ->
-                    Host;
-                _ ->
-                    undefined
-            end,
-    Transport = SIPSocket#sip_socket.type,
     Branch = esip:make_branch(Hdrs),
-    case esip_transport:make_via_hdr(VHost, Branch, Transport) of
+    case esip_transport:make_via_hdr(SIPSocket, Branch) of
 	{ok, ViaHdr} ->
 	    NewReq = Req#sip{hdrs = [{'via', ViaHdr}|Hdrs]},
 	    {ok, SIPSocket, NewReq, Branch};
 	{error, _} = Err ->
-	    connect(Err, Req)
-    end;
-connect({error, _} = Err, _Req) ->
-    Err.
+	    Err
+    end.
 
 send(State, Resp) ->
     case esip_transport:send(State#state.sock, Resp) of

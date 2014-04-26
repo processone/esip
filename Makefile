@@ -25,9 +25,9 @@ dialyzer/deps.plt:
 	-o dialyzer/deps.log $(deps); \
 	status=$$? ; if [ $$status -ne 2 ]; then exit $$status; else exit 0; fi
 
-dialyzer/p1db.plt:
+dialyzer/esip.plt:
 	@mkdir -p dialyzer
-	@dialyzer --build_plt --output_plt dialyzer/p1db.plt \
+	@dialyzer --build_plt --output_plt dialyzer/esip.plt \
 	-o dialyzer/ejabberd.log ebin; \
 	status=$$? ; if [ $$status -ne 2 ]; then exit $$status; else exit 0; fi
 
@@ -39,11 +39,11 @@ deps_plt: dialyzer/deps.plt
 	@dialyzer --plt dialyzer/deps.plt --check_plt -o dialyzer/deps.log; \
 	status=$$? ; if [ $$status -ne 2 ]; then exit $$status; else exit 0; fi
 
-p1db_plt: dialyzer/p1db.plt
-	@dialyzer --plt dialyzer/p1db.plt --check_plt -o dialyzer/ejabberd.log; \
+esip_plt: dialyzer/esip.plt
+	@dialyzer --plt dialyzer/esip.plt --check_plt -o dialyzer/ejabberd.log; \
 	status=$$? ; if [ $$status -ne 2 ]; then exit $$status; else exit 0; fi
 
-dialyzer: erlang_plt deps_plt p1db_plt
+dialyzer: erlang_plt deps_plt esip_plt
 	@dialyzer --plts dialyzer/*.plt --no_check_plt \
 	--get_warnings -o dialyzer/error.log ebin; \
 	status=$$? ; if [ $$status -ne 2 ]; then exit $$status; else exit 0; fi
@@ -51,4 +51,4 @@ dialyzer: erlang_plt deps_plt p1db_plt
 check-syntax:
 	gcc -o nul -S ${CHK_SOURCES}
 
-.PHONY: clean src test all dialyzer erlang_plt deps_plt p1db_plt
+.PHONY: clean src test all dialyzer erlang_plt deps_plt esip_plt

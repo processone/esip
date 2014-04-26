@@ -10,7 +10,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/1, start/2, stop/0]).
+-export([start_link/0, start/0, stop/0]).
 
 -export([ack/1,
          add_hdr/3,
@@ -111,39 +111,19 @@ behaviour_info(callbacks) ->
      {data_in, 2},
      {data_out, 2}].
 
-start_link(Opts) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
-
-start(Module, Opts) ->
-    crypto:start(),
-    ChildSpec = {?MODULE,
-		 {?MODULE, start_link, [[{module, Module}|Opts]]},
-		 transient, 2000, worker,
-		 [?MODULE]},
-    case application:start(esip) of
-	ok ->
-	    supervisor:start_child(esip_sup, ChildSpec);
-	{error,{already_started, _}} ->
-	    supervisor:start_child(esip_sup, ChildSpec);
-	Err ->
-	    Err
-    end.
+start() ->
+    application:start(esip).
 
 stop() ->
     application:stop(esip).
 
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
 get_so_path() ->
-    case os:getenv("ESIP_SO_PATH") of
-        false ->
-            case code:priv_dir(esip) of
-                {error, _} ->
-                    ".";
-                Path ->
-                    filename:join([Path, "lib"])
-            end;
-        Path ->
-            Path
-    end.
+    EbinDir = filename:dirname(code:which(?MODULE)),
+    AppDir = filename:dirname(EbinDir),
+    filename:join([AppDir, "priv", "lib"]).
 
 request(Request) ->
     request(Request, undefined).
@@ -185,15 +165,8 @@ send(#sip{type = request, hdrs = Hdrs} = Req, Opts) ->
 	  end,
     case Res of
 	{ok, SIPSocket} ->
-	    VHost = case esip:get_hdr('from', Hdrs) of
-			{_, #uri{host = Host}, _} ->
-			    Host;
-			_ ->
-			    undefined
-		    end,
-	    Transport = SIPSocket#sip_socket.type,
 	    Branch = esip:make_branch(Hdrs),
-	    case esip_transport:make_via_hdr(VHost, Branch, Transport) of
+	    case esip_transport:make_via_hdr(SIPSocket, Branch) of
 		{ok, ViaHdr} ->
 		    NewReq = Req#sip{hdrs = [{'via', ViaHdr}|Hdrs]},
 		    esip_transport:send(SIPSocket, NewReq);
@@ -822,12 +795,11 @@ warning(Code) when Code > 300, Code < 400 -> <<"\"\"">>.
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
-init([Opts]) ->
+init([]) ->
     {A, B, C} = now(),
     random:seed(A, B, C),
-    self() ! {init, Opts},
     ets:new(esip_config, [named_table, public]),
-    set_config(Opts),
+    set_config([]),
     NodeID = list_to_binary(integer_to_list(random:uniform(1 bsl 32))),
     register_node(NodeID),
     {ok, #state{node_id = NodeID}}.
@@ -848,29 +820,8 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({init, Opts}, State) ->
-    lists:foreach(
-      fun({listen, Port, Transport, LOpts}) ->
-              case esip_listener:add_listener(Port, Transport, LOpts) of
-                  {error, _} ->
-                      ok;
-                  _ ->
-                      ets:insert(esip_config,
-                                 {{listen, Port, Transport}, LOpts})
-              end;
-         ({route, VirtualHost, Transport, ROpts} = Route) ->
-              case process_route(Route) of
-                  ok ->
-                      ets:insert(esip_config,
-                                 {{route, VirtualHost, Transport}, ROpts});
-                  _ ->
-                      ?ERROR_MSG("Invalid 'route' option: ~p", [Route])
-              end;
-         (_) ->
-              ok
-      end, Opts),
-    {noreply, State};
 handle_info(_Info, State) ->
+    ?ERROR_MSG("got unexpected info: ~p", [_Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -909,33 +860,6 @@ int_to_list(N) ->
 
 register_node(NodeID) ->
     global:register_name(erlang:binary_to_atom(NodeID, utf8), self()).
-
-process_route({route, VirtualHost, Transport, ROpts}) ->
-    VHost = if is_list(VirtualHost) ->
-                    list_to_binary(VirtualHost);
-               is_binary(VirtualHost) ->
-                    VirtualHost;
-               true ->
-                    undefined
-            end,
-    Host = case lists:keysearch(host, 1, ROpts) of
-               {value, {_, HostName}} ->
-                   iolist_to_binary(HostName);
-               _ ->
-                   VHost
-           end,
-    Port = case lists:keysearch(port, 1, ROpts) of
-               {value, {_, RPort}} ->
-                   RPort;
-               _ ->
-                   undefined
-           end,
-    if Host /= undefined ->
-            esip_transport:register_route(VHost, Transport, Host, Port),
-            ok;
-       true ->
-            error
-    end.
 
 unquote(<<$", Rest/binary>>) ->
     case size(Rest) - 1 of

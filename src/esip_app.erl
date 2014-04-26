@@ -18,8 +18,13 @@
 start(_Type, _StartArgs) ->
     esip_codec:start(),
     case esip_sup:start_link() of
-	{ok, Pid} -> 
-	    {ok, Pid};
+	{ok, Pid} ->
+	    case esip_socket:start_pool() of
+		ok ->
+		    {ok, Pid};
+		Err ->
+		    Err
+	    end;
 	Error ->
 	    Error
     end.

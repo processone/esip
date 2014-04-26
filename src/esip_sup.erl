@@ -27,6 +27,8 @@ start_link() ->
 %% Supervisor callbacks
 %%====================================================================
 init([]) ->
+    ESIP = {esip, {esip, start_link, []},
+	    permanent, 2000, worker, [esip]},
     Dialog =
         {esip_dialog, {esip_dialog, start_link, []},
 	 permanent, 2000, worker, [esip_dialog]},
@@ -36,9 +38,6 @@ init([]) ->
     Transport =
         {esip_transport, {esip_transport, start_link, []},
 	 permanent, 2000, worker, [esip_transport]},
-    Listener =
-        {esip_listener, {esip_listener, start_link, []},
-	 permanent, 2000, worker, [esip_listener]},
     ServerTransactionSup =
 	{esip_server_transaction_sup,
 	 {esip_tmp_sup, start_link,
@@ -58,28 +57,27 @@ init([]) ->
     TCPConnectionSup =
         {esip_tcp_sup,
          {esip_tmp_sup, start_link,
-          [esip_tcp_sup, esip_tcp]},
+          [esip_tcp_sup, esip_socket]},
          permanent,
          infinity,
          supervisor,
          [esip_tmp_sup]},
     UDPConnectionSup =
         {esip_udp_sup,
-         {esip_tmp_sup, start_link,
-          [esip_udp_sup, esip_udp]},
+         {esip_udp_sup, start_link, []},
          permanent,
          infinity,
          supervisor,
-         [esip_tmp_sup]},
+         [esip_udp_sup]},
     {ok,{{one_for_one,10,1},
-	 [Dialog,
+	 [ESIP,
+	  Dialog,
 	  ServerTransactionSup,
 	  ClientTransactionSup,
 	  Transaction,
           Transport,
           TCPConnectionSup,
-          UDPConnectionSup,
-          Listener]}}.
+          UDPConnectionSup]}}.
 
 %%====================================================================
 %% Internal functions
