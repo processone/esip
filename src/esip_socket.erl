@@ -24,6 +24,7 @@
 -include("esip_lib.hrl").
 
 -define(TCP_SEND_TIMEOUT, 15000).
+-define(CONNECT_TIMEOUT, 20000).
 
 -record(state, {type, addr, peer, sock, buf = <<>>, max_size,
                 location, msg, wait_size}).
@@ -163,7 +164,7 @@ handle_call({connect, Addrs, Opts}, _From, State) ->
                _ ->
                    tcp
            end,
-    case do_connect(Addrs) of
+    case do_connect(Addrs, ?CONNECT_TIMEOUT div (length(Addrs) + 1)) of
         {ok, MyAddr, Peer, Sock} ->
             NewState = State#state{type = Type, sock = Sock,
                                    addr = MyAddr, peer = Peer},
@@ -213,23 +214,23 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-do_connect([{Addr, Port}|Addrs]) ->
-    case gen_tcp:connect(Addr, Port, connect_opts()) of
+do_connect([{Addr, Port}|Addrs], ConnectTimeout) ->
+    case gen_tcp:connect(Addr, Port, connect_opts(), ConnectTimeout) of
         {ok, Sock} ->
             case inet:sockname(Sock) of
                 {error, _} = Err ->
-                    fail_or_proceed(Err, Addrs);
+                    fail_or_proceed(Err, Addrs, ConnectTimeout);
                 {ok, MyAddr} ->
                     {ok, MyAddr, {Addr, Port}, Sock}
             end;
         Err ->
-            fail_or_proceed(Err, Addrs)
+            fail_or_proceed(Err, Addrs, ConnectTimeout)
     end.
 
-fail_or_proceed(Err, []) ->
+fail_or_proceed(Err, [], _ConnectTimeout) ->
     Err;
-fail_or_proceed(_Err, Addrs) ->
-    do_connect(Addrs).
+fail_or_proceed(_Err, Addrs, ConnectTimeout) ->
+    do_connect(Addrs, ConnectTimeout).
 
 make_sip_socket(#state{type = Type, addr = MyAddr, peer = Peer, sock = Sock}) ->
     #sip_socket{type = Type, addr = MyAddr, sock = Sock, peer = Peer}.
