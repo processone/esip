@@ -13,8 +13,9 @@
 
 %% API
 -export([start_link/0, start_link/1, start_link/2, start/0, start/2,
-         connect/1, connect/2, send/2, socket_type/0, udp_recv/5,
-	 udp_init/2, start_pool/0, get_pool_size/0, send/3, tcp_init/2]).
+         connect/1, connect/2, tcp_send/2, udp_send/3, tls_send/2,
+	 socket_type/0, udp_recv/5, udp_init/2, start_pool/0, get_pool_size/0,
+	 tcp_init/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -26,8 +27,17 @@
 -define(TCP_SEND_TIMEOUT, 15000).
 -define(CONNECT_TIMEOUT, 20000).
 
--record(state, {type, addr, peer, sock, buf = <<>>, max_size,
-                location, msg, wait_size}).
+-type addr() :: {inet:ip_address(), inet:port_number()}.
+
+-record(state, {type = udp :: udp | tcp | tls,
+		addr       :: addr(),
+		peer       :: addr(),
+		sock       :: port(),
+		buf = <<>> :: binary(),
+		max_size   :: non_neg_integer(),
+		msg        :: #sip{},
+		wait_size  :: non_neg_integer(),
+		certfile   :: iodata()}).
 
 %%%===================================================================
 %%% API
@@ -70,12 +80,16 @@ connect(Addrs, Opts) when is_list(Opts) ->
             Err
     end.
 
+%% @doc TLS send
+tls_send(Sock, Data) ->
+    p1_tls:send(Sock, Data).
+
 %% @doc TCP send
-send(Sock, Data) ->
+tcp_send(Sock, Data) ->
     gen_tcp:send(Sock, Data).
 
 %% @doc UDP send
-send(Sock, {Addr, Port}, Data) ->
+udp_send(Sock, {Addr, Port}, Data) ->
     NewAddr = case Addr of
                   {A, B, C, D} ->
                       case inet:sockname(Sock) of
@@ -101,7 +115,11 @@ send(Sock, {Addr, Port}, Data) ->
 tcp_init(ListenSock, Opts) ->
     {ok, {IP, Port}} = inet:sockname(ListenSock),
     ViaHost = get_via_host(IP, Opts),
-    esip_transport:register_route(tcp, ViaHost, Port).
+    Transport = case proplists:get_bool(tls, Opts) of
+		    false -> tcp;
+		    true -> tls
+		end,
+    esip_transport:register_route(Transport, ViaHost, Port).
 
 udp_init(Sock, Opts) ->
     {ok, {IP, Port}} = inet:sockname(Sock),
@@ -138,18 +156,27 @@ start_pool() ->
 init([]) ->
     MaxSize = esip:get_config_value(max_msg_size),
     {ok, #state{max_size = MaxSize}};
-init([Sock, _Opts]) ->
+init([Sock, Opts]) ->
     case inet:peername(Sock) of
-	{ok, Peer} ->
+	{ok, PeerAddr} ->
 	    case inet:sockname(Sock) of
 		{ok, MyAddr} ->
-		    inet:setopts(Sock, [{active, once}]),
-		    MaxSize = esip:get_config_value(max_msg_size),
-		    {ok, #state{max_size = MaxSize,
-				sock = Sock,
-				peer = Peer,
-				addr = MyAddr,
-				type = tcp}};
+		    Transport = get_transport(Opts),
+		    CertFile = get_certfile(Opts),
+		    case maybe_starttls(Sock, Transport, CertFile,
+					{PeerAddr, MyAddr}, server) of
+			{ok, NewSock} ->
+			    inet:setopts(Sock, [{active, once}]),
+			    MaxSize = esip:get_config_value(max_msg_size),
+			    {ok, #state{max_size = MaxSize,
+					sock = NewSock,
+					peer = PeerAddr,
+					addr = MyAddr,
+					certfile = CertFile,
+					type = Transport}};
+			{error, Err} ->
+			    {stop, Err}
+		    end;
 		{error, Err} ->
 		    {stop, Err}
 	    end;
@@ -158,21 +185,23 @@ init([Sock, _Opts]) ->
     end.
 
 handle_call({connect, Addrs, Opts}, _From, State) ->
-    Type = case lists:keysearch(tls, 1, Opts) of
-               {value, {_, true}} ->
-                   tls;
-               _ ->
-                   tcp
-           end,
+    Type = get_transport(Opts),
+    CertFile = get_certfile(Opts),
     case do_connect(Addrs, ?CONNECT_TIMEOUT div (length(Addrs) + 1)) of
         {ok, MyAddr, Peer, Sock} ->
-            NewState = State#state{type = Type, sock = Sock,
-                                   addr = MyAddr, peer = Peer},
-            SIPSock = make_sip_socket(NewState),
-            esip_transport:register_socket(Peer, Type, SIPSock),
-            {reply, {ok, SIPSock}, NewState};
-        Err ->
-            {stop, normal, Err, State}
+	    case maybe_starttls(Sock, Type, CertFile, {MyAddr, Peer}, client) of
+		{ok, NewSock} ->
+		    inet:setopts(Sock, [{active, once}]),
+		    NewState = State#state{type = Type, sock = NewSock,
+					   addr = MyAddr, peer = Peer},
+		    SIPSock = make_sip_socket(NewState),
+		    esip_transport:register_socket(Peer, Type, SIPSock),
+		    {reply, {ok, SIPSock}, NewState};
+		{error, _} = Err ->
+		    {stop, normal, Err, State}
+	    end;
+	{error, _} = Err ->
+	    Err
     end;
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -193,10 +222,19 @@ handle_info({init, UDPSock}, State) ->
     SIPSock = #sip_socket{type = udp, sock = UDPSock, addr = MyAddr},
     esip_transport:register_udp_listener(SIPSock),
     {noreply, State#state{addr = MyAddr}};
-handle_info({tcp, Sock, Data}, State) ->
+handle_info({tcp, Sock, Data}, #state{type = tcp} = State) ->
     inet:setopts(Sock, [{active, once}]),
     esip:callback(data_in, [Data, make_sip_socket(State)]),
     process_data(State, Data);
+handle_info({tcp, _Sock, TLSData}, #state{type = tls} = State) ->
+    p1_tls:setopts(State#state.sock, [{active, once}]),
+    case p1_tls:recv_data(State#state.sock, TLSData) of
+	{ok, Data} ->
+	    esip:callback(data_in, [Data, make_sip_socket(State)]),
+	    process_data(State, Data);
+	_Err ->
+	    {stop, normal, State}
+    end;
 handle_info({tcp_closed, _Sock}, State) ->
     {stop, normal, State};
 handle_info({tcp_error, _Sock, _Reason}, State) ->
@@ -278,10 +316,14 @@ stream_transport_recv(State, Msg) ->
             ok
     end.
 
-process_crlf(<<"\r\n\r\n", Data/binary>>, State) ->
+process_crlf(<<"\r\n\r\n", Data/binary>>, #state{type = Transport} = State) ->
     DataOut = <<"\r\n">>,
     esip:callback(data_out, [DataOut, make_sip_socket(State)]),
-    gen_tcp:send(State#state.sock, DataOut),
+    if Transport == tcp ->
+	    gen_tcp:send(State#state.sock, DataOut);
+       Transport == tls ->
+	    p1_tls:send(State#state.sock, DataOut)
+    end,
     process_crlf(Data, State);
 process_crlf(Data, _State) ->
     Data.
@@ -325,7 +367,7 @@ connect_opts() ->
 		   _:_ -> []
 	       end,
     [binary,
-     {active, once},
+     {active, false},
      {packet, 0},
      {send_timeout, ?TCP_SEND_TIMEOUT}
      | SendOpts].
@@ -352,3 +394,45 @@ get_via_host(IP, Opts) ->
 		    iolist_to_binary(inet_parse:ntoa(IP))
 	    end
     end.
+
+get_transport(Opts) ->
+    case proplists:get_bool(tls, Opts) of
+	false -> tcp;
+	true -> tls
+    end.
+
+get_certfile(Opts) ->
+    case catch iolist_to_binary(proplists:get_value(certfile, Opts)) of
+	Filename when is_binary(Filename), Filename /= <<"">> ->
+	    Filename;
+	_ ->
+	    undefined
+    end.
+
+maybe_starttls(_Sock, tls, undefined, FromTo, _Role) ->
+    {{FromIP, FromPort}, {ToIP, ToPort}} = FromTo,
+    ?ERROR_MSG("failed to start TLS connection ~s:~p -> ~s:~p: "
+	       "option 'certfile' is not set",
+	       [inet_parse:ntoa(FromIP), FromPort,
+		inet_parse:ntoa(ToIP), ToPort]),
+    {error, eprotonosupport};
+maybe_starttls(Sock, tls, CertFile, _FromTo, Role) ->
+    Opts = case Role of
+	       client -> [connect];
+	       server -> []
+	   end,
+    case p1_tls:tcp_to_tls(Sock, [{certfile, CertFile}|Opts]) of
+	{ok, NewSock} when Role == client ->
+	    case p1_tls:recv_data(NewSock, <<"">>) of
+		{ok, <<"">>} ->
+		    {ok, NewSock};
+		{error, _} = Err ->
+		    Err
+	    end;
+	{ok, NewSock} when Role == server ->
+	    {ok, NewSock};
+	{error, _} = Err ->
+	    Err
+    end;
+maybe_starttls(Sock, _Transport, _CertFile, _FromTo, _Role) ->
+    {ok, Sock}.

@@ -28,7 +28,7 @@
 
 -define(MAX_TRANSACTION_LIFETIME, timer:minutes(5)).
 
--record(state, {req, tu, sock, branch, cancelled = false}).
+-record(state, {req, tu, sock, branch, cancelled = false, certfile}).
 
 %%%===================================================================
 %%% API
@@ -65,9 +65,10 @@ init([Request, TU, Opts]) ->
                     {value, {_, S}} -> S;
                     _ -> undefined
                 end,
+    CertFile = proplists:get_value(certfile, Opts),
     gen_fsm:send_event(self(), Request),
     erlang:send_after(?MAX_TRANSACTION_LIFETIME, self(), timeout),
-    {ok, trying, #state{tu = TU, sock = SIPSocket}}.
+    {ok, trying, #state{tu = TU, sock = SIPSocket, certfile = CertFile}}.
 
 trying(#sip{type = request, method = Method} = Request, State) ->
     case connect(State, Request) of
@@ -282,7 +283,11 @@ send_ack(_, _) ->
     ok.
 
 connect(#state{sock = undefined} = State, Req) ->
-    case esip_transport:connect(Req) of
+    Opts = case State#state.certfile of
+	       undefined -> [];
+	       CertFile -> [{certfile, CertFile}]
+	   end,
+    case esip_transport:connect(Req, Opts) of
 	{ok, SIPSocket} ->
 	    connect(State#state{sock = SIPSocket}, Req);
 	{error, _} = Err ->

@@ -11,7 +11,7 @@
 -export([recv/2, send/1, send/2, start_link/0,
          register_socket/3, unregister_socket/3,
          register_udp_listener/1, unregister_udp_listener/1,
-         make_via_hdr/2, connect/1,
+         make_via_hdr/2, connect/1, connect/2,
          register_route/3, unregister_route/3,
          make_contact/1, have_route/3, via_transport_to_atom/1]).
 
@@ -80,7 +80,7 @@ send(#sip{} = SIPMsg, Opts) ->
         {value, {_, SIPSocket}} ->
             send(SIPSocket, SIPMsg);
         _ ->
-            case connect(SIPMsg) of
+            case connect(SIPMsg, Opts) of
                 {ok, SIPSock} ->
                     send(SIPSock, SIPMsg);
                 Err ->
@@ -88,7 +88,10 @@ send(#sip{} = SIPMsg, Opts) ->
             end
     end.
 
-connect(#sip{type = request, uri = URI, hdrs = Hdrs} = Req) ->
+connect(SIPMsg) ->
+    connect(SIPMsg, []).
+
+connect(#sip{type = request, uri = URI, hdrs = Hdrs} = Req, Opts) ->
     NewURI = case esip:callback(locate, [Req]) of
                  U = #uri{} ->
                      U;
@@ -100,8 +103,8 @@ connect(#sip{type = request, uri = URI, hdrs = Hdrs} = Req) ->
                              URI
                      end
              end,
-    do_connect(NewURI);
-connect(#sip{type = response, hdrs = Hdrs} = Resp) ->
+    do_connect(NewURI, Opts);
+connect(#sip{type = response, hdrs = Hdrs} = Resp, Opts) ->
     NewVia = case esip:callback(locate, [Resp]) of
                  Via = #via{} ->
                      Via;
@@ -109,9 +112,9 @@ connect(#sip{type = response, hdrs = Hdrs} = Resp) ->
                      [Via|_] = esip:get_hdrs('via', Hdrs),
                      Via
              end,
-    do_connect(NewVia).
+    do_connect(NewVia, Opts).
 
-do_connect(URIorVia) ->
+do_connect(URIorVia, Opts) ->
     case resolve(URIorVia) of
         {ok, AddrsPorts, Transport} ->
             case lookup_socket(AddrsPorts, Transport) of
@@ -120,7 +123,9 @@ do_connect(URIorVia) ->
                 _ ->
                     case Transport of
                         tcp ->
-                            esip_socket:connect(AddrsPorts);
+                            esip_socket:connect(AddrsPorts, Opts);
+			tls ->
+			    esip_socket:connect(AddrsPorts, [tls|Opts]);
 			udp ->
                             case get_udp_listener() of
                                 {ok, UDPSock} ->
@@ -417,8 +422,9 @@ do_send(#sip_socket{type = Type, sock = Sock,
         Data ->
             esip:callback(data_out, [Data, SIPSock]),
             case Type of
-                udp -> esip_socket:send(Sock, Peer, Data);
-                _ -> esip_socket:send(Sock, Data)
+                udp -> esip_socket:udp_send(Sock, Peer, Data);
+                tcp -> esip_socket:tcp_send(Sock, Data);
+		tls -> esip_socket:tls_send(Sock, Data)
             end
     end.
 
@@ -623,17 +629,29 @@ naptr_lookup(Host) when is_binary(Host) ->
 naptr_lookup(Host) ->
     case inet_res:getbyname(Host, naptr) of
         {ok, #hostent{h_addr_list = Addrs}} ->
-            lists:flatmap(
-              fun({_Order, _Pref, _Flags, Service, _Regexp, SRVHost}) ->
-                      case Service of
-                          "sips+d2t" -> [{SRVHost, tls}];
-                          "sips+d2s" -> [{SRVHost, tls_sctp}];
-                          "sip+d2t" -> [{SRVHost, tcp}];
-                          "sip+d2u" -> [{SRVHost, udp}];
-                          "sip+d2s" -> [{SRVHost, sctp}];
-                          _ -> []
-                      end
-              end, lists:keysort(1, Addrs));
+            L = lists:flatmap(
+		  fun({_Order, _Pref, "s", Service, _Regexp, SRVHost}) ->
+			  case Service of
+			      "sips+d2t" -> [{SRVHost, tls}];
+			      "sip+d2t" -> [{SRVHost, tcp}];
+			      "sip+d2u" -> [{SRVHost, udp}];
+			      _ -> []
+			  end;
+		     (_) ->
+			  []
+		  end, Addrs),
+	    lists:reverse(
+	      lists:sort(
+		fun({_, udp}, {_, udp}) -> true;
+		   ({_, udp}, {_, tcp}) -> true;
+		   ({_, udp}, {_, tls}) -> true;
+		   ({_, tcp}, {_, udp}) -> false;
+		   ({_, tcp}, {_, tcp}) -> true;
+		   ({_, tcp}, {_, tls}) -> true;
+		   ({_, tls}, {_, udp}) -> false;
+		   ({_, tls}, {_, tcp}) -> false;
+		   ({_, tls}, {_, tls}) -> true
+		end, L));
         Err ->
             Err
     end.
