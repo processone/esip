@@ -13,9 +13,8 @@
 
 %% API
 -export([start_link/0, start_link/1, start_link/2, start/0, start/2,
-         connect/1, connect/2, tcp_send/2, udp_send/3, tls_send/2,
-	 socket_type/0, udp_recv/5, udp_init/2, start_pool/0, get_pool_size/0,
-	 tcp_init/2]).
+         connect/1, connect/2, send/2, socket_type/0, udp_recv/5, udp_init/2,
+	 start_pool/0, get_pool_size/0, tcp_init/2, sockname/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -80,16 +79,21 @@ connect(Addrs, Opts) when is_list(Opts) ->
             Err
     end.
 
-%% @doc TLS send
-tls_send(Sock, Data) ->
-    p1_tls:send(Sock, Data).
-
-%% @doc TCP send
-tcp_send(Sock, Data) ->
-    gen_tcp:send(Sock, Data).
-
-%% @doc UDP send
-udp_send(Sock, {Addr, Port}, Data) ->
+send(#sip_socket{pid = Pid} = SIPSocket, Data) when node(Pid) /= node() ->
+    Msg = {send, SIPSocket, Data},
+    case erlang:send(Pid, Msg, [noconnect, nosuspend]) of
+        nosuspend ->
+            {error, closed};
+        noconnect ->
+            {error, closed};
+        _ ->
+            ok
+    end;
+send(#sip_socket{type = tls, sock = Sock}, Data) ->
+    p1_tls:send(Sock, Data);
+send(#sip_socket{type = tcp, sock = Sock}, Data) ->
+    gen_tcp:send(Sock, Data);
+send(#sip_socket{type = udp, sock = Sock, peer = {Addr, Port}}, Data) ->
     NewAddr = case Addr of
                   {A, B, C, D} ->
                       case inet:sockname(Sock) of
@@ -114,21 +118,21 @@ udp_send(Sock, {Addr, Port}, Data) ->
 
 tcp_init(ListenSock, Opts) ->
     {ok, {IP, Port}} = inet:sockname(ListenSock),
-    ViaHost = get_via_host(IP, Opts),
+    ViaHost = get_via_host(IP),
     Transport = case proplists:get_bool(tls, Opts) of
 		    false -> tcp;
 		    true -> tls
 		end,
     esip_transport:register_route(Transport, ViaHost, Port).
 
-udp_init(Sock, Opts) ->
+udp_init(Sock, _Opts) ->
     {ok, {IP, Port}} = inet:sockname(Sock),
-    ViaHost = get_via_host(IP, Opts),
+    ViaHost = get_via_host(IP),
     esip_transport:register_route(udp, ViaHost, Port),
     lists:foreach(
       fun(I) ->
 	      Pid = get_proc(I),
-	      Pid ! {init, Sock}
+	      Pid ! {init, Sock, self()}
       end, lists:seq(1, get_pool_size())).
 
 udp_recv(Sock, Addr, Port, Data, _Opts) ->
@@ -149,6 +153,11 @@ start_pool() ->
 	    ?ERROR_MSG("failed to start UDP pool: ~p", [Err]),
 	    Err
     end.
+
+sockname(#sip_socket{type = tls, sock = Sock}) ->
+    p1_tls:sockname(Sock);
+sockname(#sip_socket{sock = Sock}) ->
+    inet:sockname(Sock).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -201,7 +210,7 @@ handle_call({connect, Addrs, Opts}, _From, State) ->
 		    {stop, normal, Err, State}
 	    end;
 	{error, _} = Err ->
-	    Err
+	    {stop, normal, Err, State}
     end;
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -213,13 +222,15 @@ handle_cast(_Msg, State) ->
 handle_info({udp, UDPSock, IP, Port, Data}, State) ->
     SIPSock = #sip_socket{type = udp, sock = UDPSock,
                           addr = State#state.addr,
+			  pid = self(),
 			  peer = {IP, Port}},
     esip:callback(data_in, [Data, SIPSock]),
     datagram_transport_recv(SIPSock, Data),
     {noreply, State};
-handle_info({init, UDPSock}, State) ->
+handle_info({init, UDPSock, Owner}, State) ->
     {ok, MyAddr} = inet:sockname(UDPSock),
-    SIPSock = #sip_socket{type = udp, sock = UDPSock, addr = MyAddr},
+    SIPSock = #sip_socket{type = udp, sock = UDPSock,
+			  addr = MyAddr, pid = Owner},
     esip_transport:register_udp_listener(SIPSock),
     {noreply, State#state{addr = MyAddr}};
 handle_info({tcp, Sock, Data}, #state{type = tcp} = State) ->
@@ -235,6 +246,9 @@ handle_info({tcp, _Sock, TLSData}, #state{type = tls} = State) ->
 	_Err ->
 	    {stop, normal, State}
     end;
+handle_info({send, SIPSocket, Data}, State) ->
+    send(SIPSocket, Data),
+    {noreply, State};
 handle_info({tcp_closed, _Sock}, State) ->
     {stop, normal, State};
 handle_info({tcp_error, _Sock, _Reason}, State) ->
@@ -271,7 +285,8 @@ fail_or_proceed(_Err, Addrs, ConnectTimeout) ->
     do_connect(Addrs, ConnectTimeout).
 
 make_sip_socket(#state{type = Type, addr = MyAddr, peer = Peer, sock = Sock}) ->
-    #sip_socket{type = Type, addr = MyAddr, sock = Sock, peer = Peer}.
+    #sip_socket{type = Type, addr = MyAddr,
+		sock = Sock, peer = Peer, pid = self()}.
 
 process_data(#state{buf = Buf, max_size = MaxSize,
                     msg = undefined} = State, Data) ->
@@ -382,17 +397,12 @@ get_proc_by_hash(Source) ->
 get_proc(N) ->
     list_to_atom("esip_udp_" ++ integer_to_list(N)).
 
-get_via_host(IP, Opts) ->
-    case proplists:get_value(via_host, Opts, <<"">>) of
-	ViaHost when is_binary(ViaHost), ViaHost /= <<"">> ->
-	    ViaHost;
+get_via_host(IP) ->
+    case lists:sum(tuple_to_list(IP)) of
+	0 ->
+	    undefined;
 	_ ->
-	    case lists:sum(tuple_to_list(IP)) of
-		0 ->
-		    undefined;
-		_ ->
-		    iolist_to_binary(inet_parse:ntoa(IP))
-	    end
+	    iolist_to_binary(inet_parse:ntoa(IP))
     end.
 
 get_transport(Opts) ->

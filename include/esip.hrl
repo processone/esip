@@ -31,4 +31,8 @@
 
 -record(dialog_id, {'call-id', remote_tag, local_tag}).
 
--record(sip_socket, {type, sock, addr, peer}).
+-record(sip_socket, {type :: udp | tcp | tls,
+		     sock :: inet:socket() | p1_tls:socket(),
+		     addr :: {inet:ip_address(), inet:port_number()},
+		     peer :: {inet:ip_address(), inet:port_number()},
+		     pid  :: pid()}).

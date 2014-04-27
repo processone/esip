@@ -11,7 +11,7 @@
 
 %% API
 -export([start_link/0, process/2, reply/2, cancel/2,
-         request/2, request/3, insert/4, delete/3, stop/1]).
+         request/3, request/4, insert/4, delete/3, stop/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -85,11 +85,11 @@ reply(#sip{method = Method, type = request, hdrs = Hdrs},
 reply(_, _) ->
     ok.
 
-request(Req, TU) ->
-    request(Req, TU, []).
+request(SIPSock, Req, TU) ->
+    request(SIPSock, Req, TU, []).
 
-request(#sip{type = request} = Req, TU, Opts) ->
-    start_client_transaction(Req, TU, Opts).
+request(SIPSock, #sip{type = request} = Req, TU, Opts) ->
+    start_client_transaction(SIPSock, Req, TU, Opts).
 
 cancel(#sip{method = Method, type = request, hdrs = Hdrs}, TU) ->
     Branch = esip:get_branch(Hdrs),
@@ -192,14 +192,14 @@ start_server_transaction(SIPSock, Req) ->
             end
     end.
 
-start_client_transaction(Req, TU, Opts) ->
+start_client_transaction(SIPSock, Req, TU, Opts) ->
     MaxTransactions = esip:get_config_value(max_client_transactions),
     case ets:lookup(?MODULE, {transaction_number, client}) of
         [{_, N}] when N >= MaxTransactions ->
             maybe_report_error(client, N),
             {error, too_many_transactions};
         _ ->
-            esip_client_transaction:start(Req, TU, Opts)
+            esip_client_transaction:start(SIPSock, Req, TU, Opts)
     end.
 
 maybe_report_error(Type, N) ->

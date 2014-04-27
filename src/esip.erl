@@ -12,8 +12,7 @@
 %% API
 -export([start_link/0, start/0, stop/0]).
 
--export([ack/1,
-         add_hdr/3,
+-export([add_hdr/3,
          callback/1,
          callback/2,
          callback/3,
@@ -21,14 +20,12 @@
          cancel/2,
          check_auth/4,
          close_dialog/1,
+	 connect/1,
+	 connect/2,
          decode/1,
          decode_uri/1,
          decode_uri_field/1,
          dialog_id/2,
-         dialog_request/2,
-         dialog_request/3,
-         dialog_request/4,
-         dialog_send/2,
          encode/1,
          encode_uri/1,
          encode_uri_field/1,
@@ -48,14 +45,10 @@
          get_so_path/0,
          has_param/2,
          hex_encode/1,
-         is_my_via/1,
          make_auth/6,
          make_branch/0,
          make_branch/1,
          make_callid/0,
-         make_contact/0,
-         make_contact/1,
-         make_contact/2,
          make_cseq/0,
          make_hdrs/0,
          make_hexstr/1,
@@ -68,11 +61,10 @@
          quote/1,
          reason/1,
          reply/2,
-         request/1,
          request/2,
          request/3,
+         request/4,
          rm_hdr/2,
-         send/1,
          send/2,
          set_config_value/2,
          set_hdr/3,
@@ -125,27 +117,23 @@ get_so_path() ->
     AppDir = filename:dirname(EbinDir),
     filename:join([AppDir, "priv", "lib"]).
 
-request(Request) ->
-    request(Request, undefined).
+connect(SIPMsg) ->
+    connect(SIPMsg, []).
 
-request(Request, TU) ->
-    request(Request, TU, []).
+connect(SIPMsg, Opts) ->
+    esip_transport:connect(SIPMsg, Opts).
 
-request(Request, TU, Opts) ->
-    esip_transaction:request(Request, TU, Opts).
+request(SIPSocket, Request) ->
+    request(SIPSocket, Request, undefined).
+
+request(SIPSocket, Request, TU) ->
+    request(SIPSocket, Request, TU, []).
+
+request(SIPSocket, Request, TU, Opts) ->
+    esip_transaction:request(SIPSocket, Request, TU, Opts).
 
 reply(RequestOrTrID, Response) ->
     esip_transaction:reply(RequestOrTrID, Response).
-
-dialog_request(DialogID, Req) ->
-    dialog_request(DialogID, Req, undefined).
-
-dialog_request(DialogID, Req, TU) ->
-    dialog_request(DialogID, Req, TU, []).
-
-dialog_request(DialogID, Req, TU, Opts) ->
-    NewReq = esip_dialog:prepare_request(DialogID, Req),
-    esip_transaction:request(NewReq, TU, Opts).
 
 cancel(RequestOrTrID) ->
     cancel(RequestOrTrID, undefined).
@@ -153,46 +141,8 @@ cancel(RequestOrTrID) ->
 cancel(RequestOrTrID, TU) ->
     esip_transaction:cancel(RequestOrTrID, TU).
 
-send(ReqOrResp) ->
-    send(ReqOrResp, []).
-
-send(#sip{type = request, hdrs = Hdrs} = Req, Opts) ->
-    Res = case lists:keysearch(socket, 1, Opts) of
-	      {value, {_, S}} ->
-		  {ok, S};
-	      _ ->
-		  esip_transport:connect(Req)
-	  end,
-    case Res of
-	{ok, SIPSocket} ->
-	    Branch = esip:make_branch(Hdrs),
-	    case esip_transport:make_via_hdr(SIPSocket, Branch) of
-		{ok, ViaHdr} ->
-		    NewReq = Req#sip{hdrs = [{'via', ViaHdr}|Hdrs]},
-		    esip_transport:send(SIPSocket, NewReq);
-		Err ->
-		    Err
-	    end;
-	Err ->
-	    Err
-    end;
-send(Resp, Opts) ->
-    esip_transport:send(Resp, Opts).
-
-dialog_send(DialogID, Req) ->
-    dialog_send(DialogID, Req, []).
-
-dialog_send(DialogID = #dialog_id{}, #sip{type = request} = Req, Opts) ->
-    NewReq = esip_dialog:prepare_request(DialogID, Req),
-    esip_transport:send(NewReq, Opts).
-
-ack(DialogID) ->
-    ack(DialogID, []).
-
-ack(DialogID = #dialog_id{}, Opts) ->
-    dialog_send(DialogID, #sip{type = request,
-                               method = <<"ACK">>,
-                               hdrs = make_hdrs()}, Opts).
+send(SIPSocket, ReqOrResp) ->
+    esip_transport:send(SIPSocket, ReqOrResp).
 
 stop_transaction(TrID) ->
     esip_transaction:stop(TrID).
@@ -306,10 +256,6 @@ has_param(Param, Params) ->
 get_branch(Hdrs) ->
     [Via|_] = get_hdr('via', Hdrs),
     get_param(<<"branch">>, Via#via.params).
-
-is_my_via(#via{transport = Transport, host = Host, port = Port}) ->
-    esip_transport:have_route(
-      esip_transport:via_transport_to_atom(Transport), Host, Port).
 
 escape(Bin) ->
     esip_codec:escape(Bin).
@@ -453,15 +399,6 @@ split_keys(Key, Keys) ->
                       {H, [{K, V}|T]}
               end
       end, {[], []}, Keys).
-
-make_contact() ->
-    esip_transport:make_contact().
-
-make_contact(VHost) ->
-    esip_transport:make_contact(VHost).
-
-make_contact(VHost, Transport) ->
-    esip_transport:make_contact(VHost, Transport).
 
 make_response(Req, Resp) ->
     make_response(Req, Resp, <<>>).

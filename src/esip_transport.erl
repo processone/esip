@@ -8,12 +8,11 @@
 -module(esip_transport).
 
 %% API
--export([recv/2, send/1, send/2, start_link/0,
+-export([recv/2, send/2, start_link/0,
          register_socket/3, unregister_socket/3,
          register_udp_listener/1, unregister_udp_listener/1,
-         make_via_hdr/2, connect/1, connect/2,
-         register_route/3, unregister_route/3,
-         make_contact/1, have_route/3, via_transport_to_atom/1]).
+         connect/1, connect/2, register_route/3, unregister_route/3,
+         via_transport_to_atom/1]).
 
 -behaviour(gen_server).
 
@@ -51,42 +50,22 @@ recv(SIPSock, #sip{type = request} = Req) ->
             ok
     end;
 recv(SIPSock, #sip{type = response} = Resp) ->
-    case prepare_response(SIPSock, Resp) of
-        #sip{} = NewResp ->
-            case esip:callback(message_in, [NewResp, SIPSock]) of
-                drop ->
-                    ok;
-                #sip{type = response} = NewResp1 ->
-                    esip_transaction:process(SIPSock, NewResp1);
-                _ ->
-                    esip_transaction:process(SIPSock, NewResp)
-            end;
-        _ ->
-            ok
+    case esip:callback(message_in, [Resp, SIPSock]) of
+	drop ->
+	    ok;
+	#sip{type = response} = NewResp ->
+	    esip_transaction:process(SIPSock, NewResp);
+	_ ->
+	    esip_transaction:process(SIPSock, Resp)
     end.
 
-send(Msg) ->
-    send(Msg, []).
-
-send(#sip_socket{} = SIPSock, Msg) ->
+send(SIPSock, Msg) ->
     NewMsg = case esip:callback(message_out, [Msg, SIPSock]) of
                  drop -> ok;
                  Msg1 = #sip{} -> Msg1;
                  _ -> Msg
              end,
-    do_send(SIPSock, NewMsg);
-send(#sip{} = SIPMsg, Opts) ->
-    case lists:keysearch(socket, 1, Opts) of
-        {value, {_, SIPSocket}} ->
-            send(SIPSocket, SIPMsg);
-        _ ->
-            case connect(SIPMsg, Opts) of
-                {ok, SIPSock} ->
-                    send(SIPSock, SIPMsg);
-                Err ->
-                    Err
-            end
-    end.
+    do_send(SIPSock, NewMsg).
 
 connect(SIPMsg) ->
     connect(SIPMsg, []).
@@ -148,13 +127,6 @@ via_transport_to_atom(<<"SCTP">>) -> sctp;
 via_transport_to_atom(<<"TLS-SCTP">>) -> tls_sctp;
 via_transport_to_atom(_) -> unknown.
 
-atom_to_via_transport(tls) -> <<"TLS">>;
-atom_to_via_transport(tcp) -> <<"TCP">>;
-atom_to_via_transport(udp) -> <<"UDP">>;
-atom_to_via_transport(sctp) -> <<"SCTP">>;
-atom_to_via_transport(tls_sctp) -> <<"TLS-SCTP">>;
-atom_to_via_transport(_) -> <<>>.
-
 register_socket(Addr, Transport, Sock) ->
     ets:insert(esip_socket, {{Addr, Transport}, Sock}).
 
@@ -202,77 +174,8 @@ unregister_route(Transport, Host, Port) ->
                                          host = Host,
                                          port = Port}).
 
-have_route(Transport, Host, Port) ->
-    case ets:match_object(esip_route, #route{transport = Transport,
-                                             host = Host,
-                                             port = Port}) of
-        [_|_] ->
-            true;
-        _ ->
-            false
-    end.
-
-get_route(Transport) ->
-    case ets:lookup(esip_route, Transport) of
-        [#route{host = Host, port = Port}|_] ->
-	    {ok, Transport, Host, Port};
-	[] ->
-	    error
-    end.
-
 get_all_routes() ->
     ets:tab2list(esip_route).
-
-make_via_hdr(#sip_socket{type = Transport, sock = Sock}, Branch) ->
-    Res = case get_route(Transport) of
-	      {ok, _, Host, Port} when Host /= undefined ->
-		  {Host, Port};
-	      {ok, _, undefined, Port} ->
-		  case inet:sockname(Sock) of
-		      {ok, {IP, _}} ->
-			  case lists:sum(tuple_to_list(IP)) of
-			      0 ->
-				  {<<"127.0.0.1">>, Port};
-			      _ ->
-				  {ip_to_host(IP), Port}
-			  end;
-		      Err ->
-			  Err
-		  end;
-	      error ->
-		  {error, unsupported_transport}
-	  end,
-    case Res of
-	{error, Why} ->
-	    {error, Why};
-	{Host1, Port1} ->
-	    {ok, [#via{transport = atom_to_via_transport(Transport),
-		       host = Host1,
-		       port = Port1,
-		       params = [{<<"branch">>, Branch},
-				 {<<"rport">>, <<>>}]}]}
-    end.
-
-make_contact(Transport) ->
-    Res = get_route(Transport),
-    case Res of
-        {ok, Transport1, Host, Port} ->
-            Scheme = case Transport1 of
-                         tls -> <<"sips">>;
-                         tls_sctp -> <<"sips">>;
-                         _ -> <<"sip">>
-                     end,
-            Params = case Transport1 of
-                         udp -> [{<<"transport">>, <<"udp">>}];
-                         sctp -> [{<<"transport">>, <<"stcp">>}];
-                         tcp -> [{<<"transport">>, <<"tcp">>}];
-                         _ -> []
-                     end,
-            [{<<>>, #uri{scheme = Scheme, host = Host,
-                         port = Port, params = Params}, []}];
-        _ ->
-            []
-    end.
 
 supported_transports() ->
     supported_transports(all).
@@ -280,16 +183,14 @@ supported_transports() ->
 supported_transports(Type) ->
     lists:flatmap(
       fun(#route{transport = Transport}) ->
-              case Transport of
-                  tls when Type == tls ->
-                      [Transport];
-                  tls_sctp when Type == tls ->
-                      [Transport];
-                  _ when Type == tls ->
-                      [];
-                  _ ->
-                      [Transport]
-              end
+	      case Transport of
+		  tls when Type == tls ->
+		      [Transport];
+		  _ when Type == tls ->
+		      [];
+		  _ ->
+		      [Transport]
+	      end
       end, get_all_routes()).
 
 supported_uri_schemes() ->
@@ -366,25 +267,6 @@ prepare_request(#sip_socket{peer = {Addr, Port}, type = SockType},
             error
     end.
 
-prepare_response(#sip_socket{type = SockType}, #sip{hdrs = Hdrs} = Response) ->
-    case esip:get_hdrs('via', Hdrs) of
-        [#via{host = Host, port = Port, transport = Transport} = Via|_] ->
-            case is_valid_via(Via, SockType) andalso is_valid_hdrs(Hdrs) of
-                true ->
-                    case have_route(via_transport_to_atom(Transport),
-                                    Host, Port) of
-                        true ->
-                            Response;
-                        _ ->
-                            error
-                    end;
-                false ->
-                    error
-            end;
-        _ ->
-            error
-    end.
-
 is_valid_hdrs(Hdrs) ->
     try
         From = esip:get_hdr('from', Hdrs),
@@ -412,8 +294,7 @@ has_from(_) -> false.
 has_to({_, #uri{}, _}) -> true;
 has_to(_) -> false.
 
-do_send(#sip_socket{type = Type, sock = Sock,
-                    peer = Peer} = SIPSock, Msg) ->
+do_send(SIPSock, Msg) ->
     case catch esip_codec:encode(Msg) of
         {'EXIT', _} = Err ->
             ?ERROR_MSG("failed to encode:~n"
@@ -421,11 +302,7 @@ do_send(#sip_socket{type = Type, sock = Sock,
 		       [Msg, Err]);
         Data ->
             esip:callback(data_out, [Data, SIPSock]),
-            case Type of
-                udp -> esip_socket:udp_send(Sock, Peer, Data);
-                tcp -> esip_socket:tcp_send(Sock, Data);
-		tls -> esip_socket:tls_send(Sock, Data)
-            end
+	    esip_socket:send(SIPSock, Data)
     end.
 
 host_to_ip(Host) when is_binary(Host) ->
@@ -489,7 +366,8 @@ resolve(#via{transport = ViaTransport} = Via) ->
 do_resolve(#uri{host = Host, port = Port, params = Params}, SupportedTransports) ->
     case esip:to_lower(esip:get_param(<<"transport">>, Params)) of
         <<>> ->
-            [FallbackTransport|_] = lists:reverse(SupportedTransports),
+            [FallbackTransport|_] = lists:sort(fun sort_transport/2,
+					       SupportedTransports),
             case host_to_ip(Host) of
                 {ok, Addr} ->
                     select_host_port(Addr, Port, FallbackTransport);
@@ -642,15 +520,8 @@ naptr_lookup(Host) ->
 		  end, Addrs),
 	    lists:reverse(
 	      lists:sort(
-		fun({_, udp}, {_, udp}) -> true;
-		   ({_, udp}, {_, tcp}) -> true;
-		   ({_, udp}, {_, tls}) -> true;
-		   ({_, tcp}, {_, udp}) -> false;
-		   ({_, tcp}, {_, tcp}) -> true;
-		   ({_, tcp}, {_, tls}) -> true;
-		   ({_, tls}, {_, udp}) -> false;
-		   ({_, tls}, {_, tcp}) -> false;
-		   ({_, tls}, {_, tls}) -> true
+		fun({_, T1}, {_, T2}) ->
+			sort_transport(T1, T2)
 		end, L));
         Err ->
             Err
@@ -693,3 +564,13 @@ a_lookup(Host) ->
                     Err
             end
     end.
+
+sort_transport(udp, udp) -> true;
+sort_transport(udp, tcp) -> true;
+sort_transport(udp, tls) -> true;
+sort_transport(tcp, udp) -> false;
+sort_transport(tcp, tcp) -> true;
+sort_transport(tcp, tls) -> true;
+sort_transport(tls, udp) -> false;
+sort_transport(tls, tcp) -> false;
+sort_transport(tls, tls) -> true.

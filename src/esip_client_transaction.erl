@@ -11,7 +11,7 @@
 -behaviour(gen_fsm).
 
 %% API
--export([start_link/3, start/2, start/3, stop/1, route/2, cancel/2]).
+-export([start_link/4, start/3, start/4, stop/1, route/2, cancel/2]).
 
 %% gen_fsm callbacks
 -export([init/1, handle_event/3, handle_sync_event/4,
@@ -28,20 +28,21 @@
 
 -define(MAX_TRANSACTION_LIFETIME, timer:minutes(5)).
 
--record(state, {req, tu, sock, branch, cancelled = false, certfile}).
+-record(state, {req, tu, sock, branch, cancelled = false}).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
-start_link(Request, TU, Opts) ->
-    gen_fsm:start_link(?MODULE, [Request, TU, Opts], []).
+start_link(SIPSocket, Request, TU, Opts) ->
+    gen_fsm:start_link(?MODULE, [SIPSocket, Request, TU, Opts], []).
 
-start(Request, TU) ->
-    start(Request, TU, []).
+start(SIPSocket, Request, TU) ->
+    start(SIPSocket, Request, TU, []).
 
-start(Request, TU, Opts) ->
-    case esip_tmp_sup:start_child(esip_client_transaction_sup,
-                                  ?MODULE, gen_fsm, [Request, TU, Opts]) of
+start(SIPSocket, Request, TU, Opts) ->
+    case esip_tmp_sup:start_child(
+	   esip_client_transaction_sup,
+	   ?MODULE, gen_fsm, [SIPSocket, Request, TU, Opts]) of
         {ok, Pid} ->
             {ok, make_trid(Pid)};
 	{error, _} = Err ->
@@ -60,44 +61,34 @@ stop(Pid) ->
 %%%===================================================================
 %%% gen_fsm callbacks
 %%%===================================================================
-init([Request, TU, Opts]) ->
-    SIPSocket = case lists:keysearch(socket, 1, Opts) of
-                    {value, {_, S}} -> S;
-                    _ -> undefined
-                end,
-    CertFile = proplists:get_value(certfile, Opts),
+init([SIPSocket, Request, TU, _Opts]) ->
     gen_fsm:send_event(self(), Request),
     erlang:send_after(?MAX_TRANSACTION_LIFETIME, self(), timeout),
-    {ok, trying, #state{tu = TU, sock = SIPSocket, certfile = CertFile}}.
+    {ok, trying, #state{tu = TU, sock = SIPSocket}}.
 
-trying(#sip{type = request, method = Method} = Request, State) ->
-    case connect(State, Request) of
-        {ok, #sip_socket{type = Type} = SIPSock, NewRequest, Branch} ->
-            esip_transaction:insert(Branch, Method, client, self()),
-            T1 = esip:timer1(),
-            if Type == udp, Method == <<"INVITE">> ->
-                    gen_fsm:send_event_after(T1, {timer_A, T1});
-               Type == udp ->
-                    gen_fsm:send_event_after(T1, {timer_E, T1});
-               true ->
-                    ok
-            end,
-            if Method == <<"INVITE">> ->
-                    gen_fsm:send_event_after(64*T1, timer_B);
-               true ->
-                    gen_fsm:send_event_after(64*T1, timer_F)
-            end,
-            NewState = State#state{sock = SIPSock, req = NewRequest,
-                                   branch = Branch},
-            case send(NewState, NewRequest) of
-                ok ->
-                    {next_state, trying, NewState};
-                _ ->
-                    {stop, normal, NewState}
-            end;
-        {error, _} = Err ->
-            pass_to_transaction_user(State#state{req = Request}, Err),
-            {stop, normal, State}
+trying(#sip{type = request, hdrs = Hdrs, method = Method} = Request,
+       #state{sock = #sip_socket{type = Type}} = State) ->
+    Branch = esip:get_branch(Hdrs),
+    esip_transaction:insert(Branch, Method, client, self()),
+    T1 = esip:timer1(),
+    if Type == udp, Method == <<"INVITE">> ->
+	    gen_fsm:send_event_after(T1, {timer_A, T1});
+       Type == udp ->
+	    gen_fsm:send_event_after(T1, {timer_E, T1});
+       true ->
+	    ok
+    end,
+    if Method == <<"INVITE">> ->
+	    gen_fsm:send_event_after(64*T1, timer_B);
+       true ->
+	    gen_fsm:send_event_after(64*T1, timer_F)
+    end,
+    NewState = State#state{branch = Branch, req = Request},
+    case send(NewState, Request) of
+	ok ->
+	    {next_state, trying, NewState};
+	_ ->
+	    {stop, normal, NewState}
     end;
 trying({timer_A, T}, State) ->
     gen_fsm:send_event_after(2*T, {timer_A, 2*T}),
@@ -193,7 +184,7 @@ proceeding({cancel, TU}, #state{req = #sip{hdrs = Hdrs} = Req} = State) ->
                      method = <<"CANCEL">>,
                      uri = Req#sip.uri,
                      hdrs = Hdrs2},
-    esip_client_transaction:start(CancelReq, TU, [{socket, State#state.sock}]),
+    esip_client_transaction:start(State#state.sock, CancelReq, TU),
     {next_state, proceeding, State};
 proceeding(_Event, State) ->
     {next_state, proceeding, State}.
@@ -281,31 +272,6 @@ send_ack(#state{req = #sip{uri = URI, hdrs = Hdrs,
     send(State, ACK);
 send_ack(_, _) ->
     ok.
-
-connect(#state{sock = undefined} = State, Req) ->
-    Opts = case State#state.certfile of
-	       undefined -> [];
-	       CertFile -> [{certfile, CertFile}]
-	   end,
-    case esip_transport:connect(Req, Opts) of
-	{ok, SIPSocket} ->
-	    connect(State#state{sock = SIPSocket}, Req);
-	{error, _} = Err ->
-	    Err
-    end;
-connect(#state{sock = SIPSocket}, #sip{method = <<"CANCEL">>, hdrs = Hdrs} = Req) ->
-    {[Via|_], TailHdrs} = esip:split_hdrs('via', Hdrs),
-    Branch = esip:get_param(<<"branch">>, Via#via.params),
-    {ok, SIPSocket, Req#sip{hdrs = [{'via', [Via]}|TailHdrs]}, Branch};
-connect(#state{sock = SIPSocket}, #sip{hdrs = Hdrs} = Req) ->
-    Branch = esip:make_branch(Hdrs),
-    case esip_transport:make_via_hdr(SIPSocket, Branch) of
-	{ok, ViaHdr} ->
-	    NewReq = Req#sip{hdrs = [{'via', ViaHdr}|Hdrs]},
-	    {ok, SIPSocket, NewReq, Branch};
-	{error, _} = Err ->
-	    Err
-    end.
 
 send(State, Resp) ->
     case esip_transport:send(State#state.sock, Resp) of
