@@ -409,7 +409,7 @@ get_certfile(Opts) ->
 	    undefined
     end.
 
-maybe_starttls(_Sock, tls, undefined, FromTo, _Role) ->
+maybe_starttls(_Sock, tls, undefined, FromTo, server) ->
     {{FromIP, FromPort}, {ToIP, ToPort}} = FromTo,
     ?ERROR_MSG("failed to start TLS connection ~s:~p -> ~s:~p: "
 	       "option 'certfile' is not set",
@@ -417,11 +417,15 @@ maybe_starttls(_Sock, tls, undefined, FromTo, _Role) ->
 		inet_parse:ntoa(ToIP), ToPort]),
     {error, eprotonosupport};
 maybe_starttls(Sock, tls, CertFile, _FromTo, Role) ->
-    Opts = case Role of
-	       client -> [connect];
-	       server -> []
-	   end,
-    case p1_tls:tcp_to_tls(Sock, [{certfile, CertFile}|Opts]) of
+    Opts1 = case Role of
+		client -> [connect];
+		server -> []
+	    end,
+    Opts2 = case CertFile of
+		undefined -> Opts1;
+		_ -> [{certfile, CertFile}|Opts1]
+	    end,
+    case p1_tls:tcp_to_tls(Sock, Opts2) of
 	{ok, NewSock} when Role == client ->
 	    case p1_tls:recv_data(NewSock, <<"">>) of
 		{ok, <<"">>} ->
