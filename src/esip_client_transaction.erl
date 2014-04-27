@@ -251,12 +251,11 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 %%%===================================================================
 pass_to_transaction_user(#state{tu = TU, sock = Sock}, Resp) ->
     TrID = make_trid(),
-    NewResp = remove_topmost_via(Resp),
     case TU of
         F when is_function(F) ->
-            esip:callback(F, [NewResp, Sock, TrID]);
+            esip:callback(F, [Resp, Sock, TrID]);
         {M, F, A} ->
-            esip:callback(M, F, [NewResp, Sock, TrID | A]);
+            esip:callback(M, F, [Resp, Sock, TrID | A]);
         _ ->
             TU
     end.
@@ -306,16 +305,6 @@ connect(#state{sock = SIPSocket}, #sip{hdrs = Hdrs} = Req) ->
 	    {ok, SIPSocket, NewReq, Branch};
 	{error, _} = Err ->
 	    Err
-    end.
-
-remove_topmost_via({error, _} = Err) ->
-    Err;
-remove_topmost_via(Resp) ->
-    case esip:split_hdrs('via', Resp#sip.hdrs) of
-	{[_MyVia], Hdrs} ->
-	    Resp#sip{hdrs = Hdrs};
-	{[_MyVia|Vias], Hdrs} ->
-	    Resp#sip{hdrs = [{'via', Vias}|Hdrs]}
     end.
 
 send(State, Resp) ->
