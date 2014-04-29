@@ -13,6 +13,7 @@
 -export([start_link/0, start/0, stop/0]).
 
 -export([add_hdr/3,
+	 add_listener/3,
          callback/1,
          callback/2,
          callback/3,
@@ -25,6 +26,7 @@
          decode/1,
          decode_uri/1,
          decode_uri_field/1,
+	 del_listener/2,
          dialog_id/2,
          encode/1,
          encode_uri/1,
@@ -116,6 +118,12 @@ get_so_path() ->
     EbinDir = filename:dirname(code:which(?MODULE)),
     AppDir = filename:dirname(EbinDir),
     filename:join([AppDir, "priv", "lib"]).
+
+add_listener(Port, Transport, Opts) ->
+    esip_listener:add_listener(Port, Transport, Opts).
+
+del_listener(Port, Transport) ->
+    esip_listener:del_listener(Port, Transport).
 
 connect(SIPMsg) ->
     connect(SIPMsg, []).

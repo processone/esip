@@ -29,6 +29,8 @@ start_link() ->
 init([]) ->
     ESIP = {esip, {esip, start_link, []},
 	    permanent, 2000, worker, [esip]},
+    Listener = {esip_listener, {esip_listener, start_link, []},
+		permanent, 2000, worker, [esip_listener]},
     Dialog =
         {esip_dialog, {esip_dialog, start_link, []},
 	 permanent, 2000, worker, [esip_dialog]},
@@ -71,6 +73,7 @@ init([]) ->
          [esip_udp_sup]},
     {ok,{{one_for_one,10,1},
 	 [ESIP,
+	  Listener,
 	  Dialog,
 	  ServerTransactionSup,
 	  ClientTransactionSup,
