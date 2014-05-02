@@ -123,8 +123,6 @@ do_connect(URIorVia, Opts) ->
 via_transport_to_atom(<<"TLS">>) -> tls;
 via_transport_to_atom(<<"TCP">>) -> tcp;
 via_transport_to_atom(<<"UDP">>) -> udp;
-via_transport_to_atom(<<"SCTP">>) -> sctp;
-via_transport_to_atom(<<"TLS-SCTP">>) -> tls_sctp;
 via_transport_to_atom(_) -> unknown.
 
 register_socket(Addr, tls, Sock, CertFile) ->
@@ -338,13 +336,10 @@ ip_to_host(IPv6Addr) ->
       [$[, esip_codec:to_lower(list_to_binary(inet_parse:ntoa(IPv6Addr))), $]]).
 
 srv_prefix(tls) -> "_sips._tcp.";
-srv_prefix(tls_sctp) -> "_sips._sctp.";
 srv_prefix(tcp) -> "_sip._tcp.";
-srv_prefix(sctp) -> "_sip._sctp.";
 srv_prefix(udp) -> "_sip._udp.".
 
 default_port(tls) -> 5061;
-default_port(tls_sctp) -> 5061;
 default_port(_) -> 5060.
 
 resolve(#uri{scheme = Scheme} = URI) ->
