@@ -9,7 +9,7 @@
 
 %% API
 -export([recv/2, send/2, start_link/0,
-         register_socket/3, unregister_socket/3,
+         register_socket/4, unregister_socket/4,
          register_udp_listener/1, unregister_udp_listener/1,
          connect/1, connect/2, register_route/3, unregister_route/3,
          via_transport_to_atom/1]).
@@ -96,7 +96,7 @@ connect(#sip{type = response, hdrs = Hdrs} = Resp, Opts) ->
 do_connect(URIorVia, Opts) ->
     case resolve(URIorVia) of
         {ok, AddrsPorts, Transport} ->
-            case lookup_socket(AddrsPorts, Transport) of
+            case lookup_socket(AddrsPorts, Transport, get_certfile(Opts)) of
                 {ok, Sock} ->
                     {ok, Sock};
                 _ ->
@@ -127,22 +127,33 @@ via_transport_to_atom(<<"SCTP">>) -> sctp;
 via_transport_to_atom(<<"TLS-SCTP">>) -> tls_sctp;
 via_transport_to_atom(_) -> unknown.
 
-register_socket(Addr, Transport, Sock) ->
+register_socket(Addr, tls, Sock, CertFile) ->
+    ets:insert(esip_socket, {{Addr, tls, CertFile}, Sock});
+register_socket(Addr, Transport, Sock, _CertFile) ->
     ets:insert(esip_socket, {{Addr, Transport}, Sock}).
 
-unregister_socket(Addr, Transport, Sock) ->
+unregister_socket(Addr, tls, Sock, CertFile) ->
+    ets:delete_object(esip_socket, {{Addr, tls, CertFile}, Sock});
+unregister_socket(Addr, Transport, Sock, _CertFile) ->
     ets:delete_object(esip_socket, {{Addr, Transport}, Sock}).
 
-lookup_socket([Addr|Rest], Transport) ->
-    case lookup_socket(Addr, Transport) of
+lookup_socket([Addr|Rest], Transport, CertFile) ->
+    case lookup_socket(Addr, Transport, CertFile) of
         {ok, Sock} ->
             {ok, Sock};
         _ ->
-            lookup_socket(Rest, Transport)
+            lookup_socket(Rest, Transport, CertFile)
     end;
-lookup_socket([], _) ->
+lookup_socket([], _, _) ->
     error;
-lookup_socket(Addr, Transport) ->
+lookup_socket(Addr, tls, CertFile) ->
+    case ets:lookup(esip_socket, {Addr, tls, CertFile}) of
+        [{_, Sock}|_] ->
+            {ok, Sock};
+        _ ->
+            error
+    end;
+lookup_socket(Addr, Transport, _CertFile) ->
     case ets:lookup(esip_socket, {Addr, Transport}) of
         [{_, Sock}|_] ->
             {ok, Sock};
@@ -574,3 +585,11 @@ sort_transport(tcp, tls) -> true;
 sort_transport(tls, udp) -> false;
 sort_transport(tls, tcp) -> false;
 sort_transport(tls, tls) -> true.
+
+get_certfile(Opts) ->
+    case catch iolist_to_binary(proplists:get_value(certfile, Opts)) of
+	Filename when is_binary(Filename), Filename /= <<"">> ->
+	    Filename;
+	_ ->
+	    undefined
+    end.

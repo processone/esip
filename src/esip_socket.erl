@@ -202,9 +202,10 @@ handle_call({connect, Addrs, Opts}, _From, State) ->
 		{ok, NewSock} ->
 		    inet:setopts(Sock, [{active, once}]),
 		    NewState = State#state{type = Type, sock = NewSock,
+					   certfile = CertFile,
 					   addr = MyAddr, peer = Peer},
 		    SIPSock = make_sip_socket(NewState),
-		    esip_transport:register_socket(Peer, Type, SIPSock),
+		    esip_transport:register_socket(Peer, Type, SIPSock, CertFile),
 		    {reply, {ok, SIPSock}, NewState};
 		{error, _} = Err ->
 		    {stop, normal, Err, State}
@@ -256,9 +257,10 @@ handle_info({tcp_error, _Sock, _Reason}, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, #state{peer = Peer, type = Type} = State) ->
+terminate(_Reason, #state{peer = Peer, type = Type,
+			  certfile = CertFile} = State) ->
     SIPSock = make_sip_socket(State),
-    esip_transport:unregister_socket(Peer, Type, SIPSock).
+    esip_transport:unregister_socket(Peer, Type, SIPSock, CertFile).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
