@@ -129,8 +129,8 @@ start_listener(Port, Transport, Opts, Owner)
                                {keepalive, true}|NewOpts]) of
         {ok, ListenSocket} ->
             Owner ! {self(), ok},
-	    esip_socket:tcp_init(ListenSocket, OptsWithTLS),
-            accept(ListenSocket, OptsWithTLS);
+	    OptsWithTLS1 = esip_socket:tcp_init(ListenSocket, OptsWithTLS),
+            accept(ListenSocket, OptsWithTLS1);
         Err ->
             Owner ! {self(), Err}
     end;
@@ -141,8 +141,8 @@ start_listener(Port, udp, Opts, Owner) ->
 			     Opts]) of
 	{ok, Socket} ->
 	    Owner ! {self(), ok},
-	    esip_socket:udp_init(Socket, Opts),
-	    udp_recv(Socket, Opts);
+	    Opts1 = esip_socket:udp_init(Socket, Opts),
+	    udp_recv(Socket, Opts1);
 	Err ->
 	    Owner ! {self(), Err}
     end.

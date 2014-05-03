@@ -123,9 +123,10 @@ tcp_init(ListenSock, Opts) ->
 		    false -> tcp;
 		    true -> tls
 		end,
-    esip_transport:register_route(Transport, ViaHost, Port).
+    esip_transport:register_route(Transport, ViaHost, Port),
+    Opts.
 
-udp_init(Sock, _Opts) ->
+udp_init(Sock, Opts) ->
     {ok, {IP, Port}} = inet:sockname(Sock),
     ViaHost = get_via_host(IP),
     esip_transport:register_route(udp, ViaHost, Port),
@@ -133,7 +134,8 @@ udp_init(Sock, _Opts) ->
       fun(I) ->
 	      Pid = get_proc(I),
 	      Pid ! {init, Sock, self()}
-      end, lists:seq(1, get_pool_size())).
+      end, lists:seq(1, get_pool_size())),
+    Opts.
 
 udp_recv(Sock, Addr, Port, Data, _Opts) ->
     Pid = get_proc_by_hash({Addr, Port}),
