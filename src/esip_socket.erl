@@ -137,9 +137,10 @@ udp_init(Sock, Opts) ->
       end, lists:seq(1, get_pool_size())),
     Opts.
 
-udp_recv(Sock, Addr, Port, Data, _Opts) ->
+udp_recv(Sock, Addr, Port, Data, Opts) ->
     Pid = get_proc_by_hash({Addr, Port}),
-    Pid ! {udp, Sock, Addr, Port, Data}.
+    Pid ! {udp, Sock, Addr, Port, Data},
+    Opts.
 
 start_pool() ->
     try
