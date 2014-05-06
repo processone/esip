@@ -179,11 +179,11 @@ udp_recv(Socket, Opts) ->
 		    ?ERROR_MSG("failed to process UDP packet:~n"
 			       "** Source: {~p, ~p}~n"
 			       "** Reason: ~p~n** Packet: ~p",
-			       [Addr, Port, Reason, Packet]);
-		_ ->
-		    ok
-	    end,
-	    udp_recv(Socket, Opts);
+			       [Addr, Port, Reason, Packet]),
+		    udp_recv(Socket, Opts);
+		NewOpts ->
+		    udp_recv(Socket, NewOpts)
+	    end;
 	{error, Reason} ->
 	    ?ERROR_MSG("unexpected UDP error: ~s", [inet:format_error(Reason)]),
 	    erlang:error(Reason)
