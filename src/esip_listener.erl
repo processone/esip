@@ -106,27 +106,18 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 start_listener(Port, Transport, Opts, Owner)
   when Transport == tcp; Transport == tls ->
-    Version = erlang:system_info(version),
-    NewOpts = if Version >= "5.7" ->
-                      %% OTP-6684 and OTP-7731
-                      [{send_timeout, ?TCP_SEND_TIMEOUT},
-                       {send_timeout_close, true}|Opts];
-                 Version >= "5.5.5" ->
-                      %% OTP-6684 only
-                      [{send_timeout, ?TCP_SEND_TIMEOUT}|Opts];
-                 true ->
-                      Opts
-              end,
     OptsWithTLS = case Transport of
-		      tls -> [tls|NewOpts];
-		      tcp -> NewOpts
+		      tls -> [tls|Opts];
+		      tcp -> Opts
 		  end,
     case gen_tcp:listen(Port, [binary,
                                {packet, 0},
                                {active, false},
                                {reuseaddr, true},
                                {nodelay, true},
-                               {keepalive, true}|NewOpts]) of
+                               {keepalive, true},
+			       {send_timeout, ?TCP_SEND_TIMEOUT},
+			       {send_timeout_close, true}]) of
         {ok, ListenSocket} ->
             Owner ! {self(), ok},
 	    OptsWithTLS1 = esip_socket:tcp_init(ListenSocket, OptsWithTLS),
@@ -137,8 +128,7 @@ start_listener(Port, Transport, Opts, Owner)
 start_listener(Port, udp, Opts, Owner) ->
     case gen_udp:open(Port, [binary,
 			     {active, false},
-			     {reuseaddr, true} |
-			     Opts]) of
+			     {reuseaddr, true}]) of
 	{ok, Socket} ->
 	    Owner ! {self(), ok},
 	    Opts1 = esip_socket:udp_init(Socket, Opts),
