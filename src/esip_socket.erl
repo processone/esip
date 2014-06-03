@@ -22,6 +22,7 @@
 
 -include("esip.hrl").
 -include("esip_lib.hrl").
+-include("stun.hrl").
 
 -define(TCP_SEND_TIMEOUT, 15000).
 -define(CONNECT_TIMEOUT, 20000).
@@ -337,17 +338,44 @@ stream_transport_recv(State, Msg) ->
     end.
 
 process_crlf(<<"\r\n\r\n", Data/binary>>, #state{type = Transport} = State) ->
-    DataOut = <<"\r\n">>,
-    esip:callback(data_out, [DataOut, make_sip_socket(State)]),
-    if Transport == tcp ->
-	    gen_tcp:send(State#state.sock, DataOut);
-       Transport == tls ->
-	    p1_tls:send(State#state.sock, DataOut)
+    SIPSock = make_sip_socket(State),
+    case esip:callback(message_in, [ping, SIPSock]) of
+	pong ->
+	    DataOut = <<"\r\n">>,
+	    esip:callback(data_out, [DataOut, SIPSock]),
+	    if Transport == tcp ->
+		    gen_tcp:send(State#state.sock, DataOut);
+	       Transport == tls ->
+		    p1_tls:send(State#state.sock, DataOut)
+	    end;
+	_ ->
+	    ok
     end,
     process_crlf(Data, State);
 process_crlf(Data, _State) ->
     Data.
 
+datagram_transport_recv(SIPSock, <<_:32, ?STUN_MAGIC:32, _/binary>> = Data) ->
+    case stun_codec:decode(Data, datagram) of
+	{ok, Msg} ->
+	    case esip:callback(message_in, [ping, SIPSock]) of
+		pong ->
+		    Peer = SIPSock#sip_socket.peer,
+		    Software = esip:get_config_value(software),
+		    RespMsg = #stun{method = Msg#stun.method,
+				    magic = Msg#stun.magic,
+				    trid = Msg#stun.trid,
+				    'XOR-MAPPED-ADDRESS' = Peer,
+				    'SOFTWARE' = Software},
+		    DataOut = stun_codec:encode(RespMsg),
+		    esip:callback(data_out, [DataOut, SIPSock]),
+		    send(SIPSock, DataOut);
+		_ ->
+		    ok
+	    end;
+	_ ->
+	    ok
+    end;
 datagram_transport_recv(SIPSock, Data) ->
     case catch esip_codec:decode(Data) of
         {ok, #sip{hdrs = Hdrs, body = Body} = Msg} ->
