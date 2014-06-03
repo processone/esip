@@ -189,11 +189,11 @@ init([Sock, Opts]) ->
 			{error, Err} ->
 			    {stop, Err}
 		    end;
-		{error, Err} ->
-		    {stop, Err}
+		{error, _Err} ->
+		    {stop, normal}
 	    end;
-	{error, Err} ->
-	    {stop, Err}
+	{error, _Err} ->
+	    {stop, normal}
     end.
 
 handle_call({connect, Addrs, Opts}, _From, State) ->
