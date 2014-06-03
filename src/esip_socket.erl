@@ -340,16 +340,16 @@ stream_transport_recv(State, Msg) ->
 process_crlf(<<"\r\n\r\n", Data/binary>>, #state{type = Transport} = State) ->
     SIPSock = make_sip_socket(State),
     case esip:callback(message_in, [ping, SIPSock]) of
-	pong ->
+	drop ->
+	    ok;
+	_ ->
 	    DataOut = <<"\r\n">>,
 	    esip:callback(data_out, [DataOut, SIPSock]),
 	    if Transport == tcp ->
 		    gen_tcp:send(State#state.sock, DataOut);
 	       Transport == tls ->
 		    p1_tls:send(State#state.sock, DataOut)
-	    end;
-	_ ->
-	    ok
+	    end
     end,
     process_crlf(Data, State);
 process_crlf(Data, _State) ->
@@ -359,7 +359,9 @@ datagram_transport_recv(SIPSock, <<_:32, ?STUN_MAGIC:32, _/binary>> = Data) ->
     case stun_codec:decode(Data, datagram) of
 	{ok, Msg} ->
 	    case esip:callback(message_in, [ping, SIPSock]) of
-		pong ->
+		drop ->
+		    ok;
+		_ ->
 		    Peer = SIPSock#sip_socket.peer,
 		    Software = esip:get_config_value(software),
 		    RespMsg = #stun{method = Msg#stun.method,
@@ -369,9 +371,7 @@ datagram_transport_recv(SIPSock, <<_:32, ?STUN_MAGIC:32, _/binary>> = Data) ->
 				    'SOFTWARE' = Software},
 		    DataOut = stun_codec:encode(RespMsg),
 		    esip:callback(data_out, [DataOut, SIPSock]),
-		    send(SIPSock, DataOut);
-		_ ->
-		    ok
+		    send(SIPSock, DataOut)
 	    end;
 	_ ->
 	    ok
