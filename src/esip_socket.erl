@@ -296,21 +296,25 @@ make_sip_socket(#state{type = Type, addr = MyAddr, peer = Peer, sock = Sock}) ->
 
 process_data(#state{buf = Buf, max_size = MaxSize,
                     msg = undefined} = State, Data) ->
-    NewBuf = process_crlf(<<Buf/binary, Data/binary>>, State),
-    case catch esip_codec:decode(NewBuf, stream) of
-        {ok, Msg, Tail} ->
-            case esip:get_hdr('content-length', Msg#sip.hdrs) of
-                N when is_integer(N), N >= 0, N =< MaxSize ->
-                    process_data(State#state{buf = <<>>,
-                                             msg = Msg,
-                                             wait_size = N}, Tail);
-                _ ->
-                    {stop, normal, State}
-            end;
-        more when size(NewBuf) < MaxSize ->
-            {noreply, State#state{buf = NewBuf}};
-        _ ->
-            {stop, normal, State}
+    case process_crlf(<<Buf/binary, Data/binary>>, State) of
+	{ok, NewBuf} ->
+	    case catch esip_codec:decode(NewBuf, stream) of
+		{ok, Msg, Tail} ->
+		    case esip:get_hdr('content-length', Msg#sip.hdrs) of
+			N when is_integer(N), N >= 0, N =< MaxSize ->
+			    process_data(State#state{buf = <<>>,
+						     msg = Msg,
+						     wait_size = N}, Tail);
+			_ ->
+			    {stop, normal, State}
+		    end;
+		more when size(NewBuf) < MaxSize ->
+		    {noreply, State#state{buf = NewBuf}};
+		_ ->
+		    {stop, normal, State}
+	    end;
+	{error, _} ->
+	    {stop, normal, State}
     end;
 process_data(#state{buf = Buf, max_size = MaxSize,
                     msg = Msg, wait_size = WaitSize} = State, Data) ->
@@ -337,23 +341,26 @@ stream_transport_recv(State, Msg) ->
             ok
     end.
 
-process_crlf(<<"\r\n\r\n", Data/binary>>, #state{type = Transport} = State) ->
+process_crlf(<<"\r\n\r\n", Data/binary>>, State) ->
     SIPSock = make_sip_socket(State),
-    case esip:callback(message_in, [ping, SIPSock]) of
-	drop ->
-	    ok;
-	_ ->
-	    DataOut = <<"\r\n">>,
-	    esip:callback(data_out, [DataOut, SIPSock]),
-	    if Transport == tcp ->
-		    gen_tcp:send(State#state.sock, DataOut);
-	       Transport == tls ->
-		    p1_tls:send(State#state.sock, DataOut)
-	    end
-    end,
-    process_crlf(Data, State);
+    SendRes = case esip:callback(message_in, [ping, SIPSock]) of
+		  drop ->
+		      ok;
+		  error ->
+		      {error, closed};
+		  _ ->
+		      DataOut = <<"\r\n">>,
+		      esip:callback(data_out, [DataOut, SIPSock]),
+		      send(SIPSock, DataOut)
+	      end,
+    case SendRes of
+	ok ->
+	    process_crlf(Data, State);
+	{error, Why} ->
+	    {error, Why}
+    end;
 process_crlf(Data, _State) ->
-    Data.
+    {ok, Data}.
 
 datagram_transport_recv(SIPSock, <<_:32, ?STUN_MAGIC:32, _/binary>> = Data) ->
     case stun_codec:decode(Data, datagram) of
@@ -361,17 +368,16 @@ datagram_transport_recv(SIPSock, <<_:32, ?STUN_MAGIC:32, _/binary>> = Data) ->
 	    case esip:callback(message_in, [ping, SIPSock]) of
 		drop ->
 		    ok;
+		error ->
+		    Resp = prepare_stun_response(Msg),
+		    ErrMsg = Resp#stun{class = error,
+				       'ERROR-CODE' = {400, <<"Flow Failed">>}},
+		    send_stun_response(SIPSock, ErrMsg);
 		_ ->
-		    Peer = SIPSock#sip_socket.peer,
-		    Software = esip:get_config_value(software),
-		    RespMsg = #stun{method = Msg#stun.method,
-				    magic = Msg#stun.magic,
-				    trid = Msg#stun.trid,
-				    'XOR-MAPPED-ADDRESS' = Peer,
-				    'SOFTWARE' = Software},
-		    DataOut = stun_codec:encode(RespMsg),
-		    esip:callback(data_out, [DataOut, SIPSock]),
-		    send(SIPSock, DataOut)
+		    Resp = prepare_stun_response(Msg),
+		    send_stun_response(SIPSock,
+				       Resp#stun{'XOR-MAPPED-ADDRESS' =
+						     SIPSock#sip_socket.peer})
 	    end;
 	_ ->
 	    ok
@@ -483,3 +489,15 @@ maybe_starttls(Sock, tls, CertFile, _FromTo, Role) ->
     end;
 maybe_starttls(Sock, _Transport, _CertFile, _FromTo, _Role) ->
     {ok, Sock}.
+
+prepare_stun_response(Msg) ->
+    Software = esip:get_config_value(software),
+    #stun{method = Msg#stun.method,
+	  magic = Msg#stun.magic,
+	  trid = Msg#stun.trid,
+	  'SOFTWARE' = Software}.
+
+send_stun_response(SIPSock, Msg) ->
+    DataOut = stun_codec:encode(Msg),
+    esip:callback(data_out, [DataOut, SIPSock]),
+    send(SIPSock, DataOut).
