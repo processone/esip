@@ -14,7 +14,7 @@
 %% API
 -export([start_link/0, start_link/1, start_link/2, start/0, start/2,
          connect/1, connect/2, send/2, socket_type/0, udp_recv/5, udp_init/2,
-	 start_pool/0, get_pool_size/0, tcp_init/2, sockname/1]).
+	 start_pool/0, get_pool_size/0, tcp_init/2, sockname/1, close/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -116,6 +116,19 @@ send(#sip_socket{type = udp, sock = Sock, peer = {Addr, Port}}, Data) ->
                       Addr
               end,
     gen_udp:send(Sock, NewAddr, Port, Data).
+
+close(#sip_socket{pid = Pid} = SIPSocket) when node(Pid) /= node() ->
+    case erlang:send(Pid, {close, SIPSocket}, [noconnect, nosuspend]) of
+        nosuspend -> {error, closed};
+        noconnect -> {error, closed};
+        _ -> ok
+    end;
+close(#sip_socket{type = tls, sock = Sock}) ->
+    p1_tls:close(Sock);
+close(#sip_socket{type = tcp, sock = Sock}) ->
+    gen_tcp:close(Sock);
+close(#sip_socket{type = udp, sock = Sock}) ->
+    gen_udp:close(Sock).
 
 tcp_init(ListenSock, Opts) ->
     {ok, {IP, Port}} = inet:sockname(ListenSock),
@@ -253,6 +266,9 @@ handle_info({tcp, _Sock, TLSData}, #state{type = tls} = State) ->
     end;
 handle_info({send, SIPSocket, Data}, State) ->
     send(SIPSocket, Data),
+    {noreply, State};
+handle_info({close, SIPSocket}, State) ->
+    close(SIPSocket),
     {noreply, State};
 handle_info({tcp_closed, _Sock}, State) ->
     {stop, normal, State};
