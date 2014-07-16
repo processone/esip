@@ -49,7 +49,7 @@ process(SIPSock, #sip{method = Method, hdrs = Hdrs, type = request} = Req) ->
                     case esip:callback(request, [Req, SIPSock]) of
                         #sip{type = response} = Resp ->
                             esip_transport:send(SIPSock, Resp);
-                        pass ->
+                        drop ->
                             ok;
                         _ ->
                             Resp = esip:make_response(

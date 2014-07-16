@@ -90,13 +90,13 @@
 
 -record(state, {node_id}).
 
--callback request(#sip{}, #sip_socket{}) -> #sip{} | pass | {error, any()}.
+-callback request(#sip{}, #sip_socket{}) -> #sip{} | ok | drop.
 -callback request(#sip{}, #sip_socket{}, #trid{}) ->
     #sip{} | wait | {module(), atom(), list()} | function() | {error, any()}.
 -callback response(#sip{}, #sip_socket{}) -> any().
--callback message_in(ping | #sip{}, #sip_socket{}) -> pang | pong | drop | #sip{}.
--callback message_out(#sip{}, #sip_socket{}) -> drop | #sip{}.
--callback locate(#sip{}) -> #uri{} | #via{}.
+-callback message_in(ping | #sip{}, #sip_socket{}) -> pang | pong | drop | ok | #sip{}.
+-callback message_out(#sip{}, #sip_socket{}) -> #sip{} | ok | drop.
+-callback locate(#sip{}) -> #uri{} | #via{} | ok.
 -callback data_in(iodata(), #sip_socket{}) -> any().
 -callback data_out(iodata(), #sip_socket{}) -> any().
 
