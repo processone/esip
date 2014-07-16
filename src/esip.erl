@@ -85,26 +85,24 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--export([behaviour_info/1]).
-
 -include("esip.hrl").
 -include("esip_lib.hrl").
 
 -record(state, {node_id}).
 
+-callback request(#sip{}, #sip_socket{}) -> #sip{} | pass | {error, any()}.
+-callback request(#sip{}, #sip_socket{}, #trid{}) ->
+    #sip{} | wait | {module(), atom(), list()} | function() | {error, any()}.
+-callback response(#sip{}, #sip_socket{}) -> any().
+-callback message_in(ping | #sip{}, #sip_socket{}) -> pang | pong | drop | #sip{}.
+-callback message_out(#sip{}, #sip_socket{}) -> drop | #sip{}.
+-callback locate(#sip{}) -> #uri{} | #via{}.
+-callback data_in(iodata(), #sip_socket{}) -> any().
+-callback data_out(iodata(), #sip_socket{}) -> any().
+
 %%====================================================================
 %% API
 %%====================================================================
-behaviour_info(callbacks) ->
-    [{request, 3},
-     {request, 2},
-     {response, 2},
-     {message_in, 2},
-     {message_out, 2},
-     {locate, 1},
-     {data_in, 2},
-     {data_out, 2}].
-
 start() ->
     application:start(esip).
 

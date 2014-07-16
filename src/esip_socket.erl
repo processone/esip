@@ -362,7 +362,7 @@ process_crlf(<<"\r\n\r\n", Data/binary>>, State) ->
     SendRes = case esip:callback(message_in, [ping, SIPSock]) of
 		  drop ->
 		      ok;
-		  error ->
+		  pang ->
 		      {error, closed};
 		  _ ->
 		      DataOut = <<"\r\n">>,
@@ -384,7 +384,7 @@ datagram_transport_recv(SIPSock, <<_:32, ?STUN_MAGIC:32, _/binary>> = Data) ->
 	    case esip:callback(message_in, [ping, SIPSock]) of
 		drop ->
 		    ok;
-		error ->
+		pang ->
 		    Resp = prepare_stun_response(Msg),
 		    ErrMsg = Resp#stun{class = error,
 				       'ERROR-CODE' = {400, <<"Flow Failed">>}},
