@@ -25,6 +25,7 @@
          str/2,
          escape/1,
          unescape/1,
+	 match/2,
          strcasecmp/2,
          to_hex/1]).
 
@@ -391,6 +392,10 @@ to_hex(X) ->
              N2 -> $W + N2
          end,
     <<Hi, Lo>>.
+
+%% TODO: implement URI comparison according to the RFC
+match(U1, U2) ->
+    U1 == U2.
 
 %%%===================================================================
 %%% Internal functions
