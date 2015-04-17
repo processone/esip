@@ -447,18 +447,11 @@ do_transport_recv(SIPSock, Msg) ->
     end.
 
 connect_opts() ->
-    SendOpts = try erlang:system_info(otp_release) >= "R13B"
-	       of
-		   true -> [{send_timeout_close, true}];
-		   false -> []
-	       catch
-		   _:_ -> []
-	       end,
     [binary,
      {active, false},
      {packet, 0},
-     {send_timeout, ?TCP_SEND_TIMEOUT}
-     | SendOpts].
+     {send_timeout, ?TCP_SEND_TIMEOUT},
+     {send_timeout_close, true}].
 
 get_pool_size() ->
     100.
