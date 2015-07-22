@@ -37,7 +37,7 @@
 
 -include("esip_lib.hrl").
 -define(TCP_SEND_TIMEOUT, 10000).
--record(state, {listeners = dict:new() :: dict()}).
+-record(state, {listeners = dict:new()}).
 
 %%%===================================================================
 %%% API
