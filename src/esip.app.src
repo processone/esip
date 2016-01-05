@@ -1,6 +1,6 @@
 {application, esip,
  [{description, "esip"},
-  {vsn, "0.1.0"},
+  {vsn, "1.0.0"},
   {modules, []},
   {registered, []},
   {applications, [kernel, stdlib]},
