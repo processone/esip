@@ -56,7 +56,6 @@
          get_hdr/2,
          get_hdr/3,
          get_hdrs/2,
-         get_local_tag/1,
          get_node_by_tag/1,
          get_param/2,
          get_param/3,
@@ -205,9 +204,6 @@ make_hdrs() ->
         Software ->
             [{'user-agent', Software}|Hdrs]
     end.
-
-get_local_tag(TrID) ->
-    esip_lib:get_local_tag(TrID).
 
 dialog_id(Type, SIPMsg) ->
     esip_dialog:id(Type, SIPMsg).
