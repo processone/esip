@@ -21,13 +21,20 @@
 %%%
 %%%----------------------------------------------------------------------
 {application, esip,
- [{description, "esip"},
+ [{description, "ProcessOne SIP server component in Erlang"},
   {vsn, "1.0.1"},
   {modules, []},
   {registered, []},
   {applications, [kernel, stdlib]},
   {env, []},
-  {mod, {esip_app, []}}]}.
+  {mod, {esip_app, []}},
+
+  %% hex.pm packaging:
+  {files, ["src/", "include/", "c_src/esip_codec.c", "rebar.config", "rebar.config.script", "README.md", "LICENSE.txt"]},
+  {licenses, ["Apache 2.0"]},
+  {maintainers, ["ProcessOne"]},
+  {links, [{"Github", "https://github.com/processone/esip"}]}]}.
+  
 
 %% Local Variables:
 %% mode: erlang
