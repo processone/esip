@@ -34,7 +34,6 @@
   {licenses, ["Apache 2.0"]},
   {maintainers, ["ProcessOne"]},
   {links, [{"Github", "https://github.com/processone/esip"}]}]}.
-  
 
 %% Local Variables:
 %% mode: erlang
