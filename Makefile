@@ -1,15 +1,13 @@
-REBAR=./rebar
-
 all: src
 
 src:
-	$(REBAR) compile
+	rebar get-deps compile
 
 clean:
-	$(REBAR) clean
+	rebar clean
 
 test: all
-	$(REBAR) -v skip_deps=true eunit
+	rebar -v skip_deps=true eunit
 
 deps := $(wildcard deps/*/ebin)
 
