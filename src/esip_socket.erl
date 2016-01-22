@@ -106,7 +106,7 @@ send(#sip_socket{pid = Pid} = SIPSocket, Data) when node(Pid) /= node() ->
             ok
     end;
 send(#sip_socket{type = tls, sock = Sock}, Data) ->
-    p1_tls:send(Sock, Data);
+    fast_tls:send(Sock, Data);
 send(#sip_socket{type = tcp, sock = Sock}, Data) ->
     gen_tcp:send(Sock, Data);
 send(#sip_socket{type = udp, sock = Sock, peer = {Addr, Port}}, Data) ->
@@ -139,7 +139,7 @@ close(#sip_socket{pid = Pid} = SIPSocket) when node(Pid) /= node() ->
         _ -> ok
     end;
 close(#sip_socket{type = tls, sock = Sock}) ->
-    p1_tls:close(Sock);
+    fast_tls:close(Sock);
 close(#sip_socket{type = tcp, sock = Sock}) ->
     gen_tcp:close(Sock);
 close(#sip_socket{type = udp, sock = Sock}) ->
@@ -187,7 +187,7 @@ start_pool() ->
     end.
 
 sockname(#sip_socket{type = tls, sock = Sock}) ->
-    p1_tls:sockname(Sock);
+    fast_tls:sockname(Sock);
 sockname(#sip_socket{sock = Sock}) ->
     inet:sockname(Sock).
 
@@ -271,8 +271,8 @@ handle_info({tcp, Sock, Data}, #state{type = tcp} = State) ->
     esip:callback(data_in, [Data, make_sip_socket(State)]),
     process_data(State, Data);
 handle_info({tcp, _Sock, TLSData}, #state{type = tls} = State) ->
-    p1_tls:setopts(State#state.sock, [{active, once}]),
-    case p1_tls:recv_data(State#state.sock, TLSData) of
+    fast_tls:setopts(State#state.sock, [{active, once}]),
+    case fast_tls:recv_data(State#state.sock, TLSData) of
 	{ok, Data} ->
 	    esip:callback(data_in, [Data, make_sip_socket(State)]),
 	    process_data(State, Data);
@@ -498,9 +498,9 @@ maybe_starttls(Sock, tls, CertFile, _FromTo, Role) ->
 		undefined -> Opts1;
 		_ -> [{certfile, CertFile}|Opts1]
 	    end,
-    case p1_tls:tcp_to_tls(Sock, Opts2) of
+    case fast_tls:tcp_to_tls(Sock, Opts2) of
 	{ok, NewSock} when Role == client ->
-	    case p1_tls:recv_data(NewSock, <<"">>) of
+	    case fast_tls:recv_data(NewSock, <<"">>) of
 		{ok, <<"">>} ->
 		    {ok, NewSock};
 		{error, _} = Err ->

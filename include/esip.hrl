@@ -43,7 +43,7 @@
 -record(dialog_id, {'call-id', remote_tag, local_tag}).
 
 -record(sip_socket, {type :: udp | tcp | tls,
-		     sock :: inet:socket() | p1_tls:tls_socket(),
+		     sock :: inet:socket() | fast_tls:tls_socket(),
 		     addr :: {inet:ip_address(), inet:port_number()},
 		     peer :: {inet:ip_address(), inet:port_number()},
 		     pid  :: pid()}).
