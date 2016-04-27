@@ -1,3 +1,7 @@
+# Version 1.0.4
+
+* Update Fast TLS and Stun (Mickaël Rémond)
+
 # Version 1.0.3
 
 * Update Fast TLS and Stun (Mickaël Rémond)
