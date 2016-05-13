@@ -76,12 +76,14 @@ recv(SIPSock, #sip{type = response} = Resp) ->
     end.
 
 send(SIPSock, Msg) ->
-    NewMsg = case esip:callback(message_out, [Msg, SIPSock]) of
-                 drop -> ok;
-                 Msg1 = #sip{} -> Msg1;
-                 _ -> Msg
-             end,
-    do_send(SIPSock, NewMsg).
+    case esip:callback(message_out, [Msg, SIPSock]) of
+	drop ->
+	    ok;
+	Msg1 = #sip{} ->
+	    do_send(SIPSock, Msg1);
+	_ ->
+	    do_send(SIPSock, Msg)
+    end.
 
 connect(SIPMsg) ->
     connect(SIPMsg, []).
