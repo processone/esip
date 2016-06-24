@@ -1,3 +1,8 @@
+# Version 1.0.5
+
+* Fix message drops (Evgeny Khramtsov)
+* Update Fast TLS and Stun (Mickaël Rémond)
+
 # Version 1.0.4
 
 * Update Fast TLS and Stun (Mickaël Rémond)
