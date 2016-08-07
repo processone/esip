@@ -1,3 +1,7 @@
+# Version 1.0.8
+
+* Update dependencies (Mickaël Rémond)
+
 # Version 1.0.7
 
 * Update dependencies (Mickaël Rémond)
