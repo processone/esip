@@ -23,6 +23,8 @@
 
 -module(esip_codec).
 
+-compile(no_native).
+
 %% API
 -export([start/0,
          decode/1,
