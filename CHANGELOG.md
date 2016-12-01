@@ -2,6 +2,7 @@
 
 * Use p1_utils 1.0.6 (Christophe Romain)
 * Make sure esip_codec isn't compiled to native code (Holger Weiss)
+* Update fast_tls and stun (Mickaël Rémond)
 
 # Version 1.0.8
 
