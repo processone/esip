@@ -1,3 +1,7 @@
+# Version 1.0.10
+
+* Update fast_tls and stun (Mickaël Rémond)
+
 # Version 1.0.9
 
 * Use p1_utils 1.0.6 (Christophe Romain)
