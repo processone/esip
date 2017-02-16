@@ -751,7 +751,7 @@ warning(Code) when Code > 300, Code < 400 -> <<"\"\"">>.
 %% gen_server callbacks
 %%====================================================================
 init([]) ->
-    {A, B, C} = now(),
+    {A, B, C} = p1_time_compat:timestamp(),
     random:seed(A, B, C),
     ets:new(esip_config, [named_table, public]),
     set_config([]),

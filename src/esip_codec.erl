@@ -1351,10 +1351,10 @@ test_loop() ->
     io:format("~n== Estimate: ~p~n", [T div N]).
 
 test_loop(P, Msg, N) ->
-    test_loop(P, Msg, N, now()).
+    test_loop(P, Msg, N, p1_time_compat:monotonic_time()).
 
 test_loop(P, _, 0, T) ->
-    P ! {ok, timer:now_diff(now(), T)};
+    P ! {ok, p1_time_compat:monotonic_time() - T};
 test_loop(P, Msg, N, T) ->
     decode(Msg),
     test_loop(P, Msg, N-1, T).

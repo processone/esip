@@ -138,8 +138,8 @@ init([]) ->
     ets:new(?MODULE, [public, named_table]),
     ets:insert(?MODULE, {{transaction_number, client}, 0}),
     ets:insert(?MODULE, {{transaction_number, server}, 0}),
-    ets:insert(?MODULE, {{last_error_report, client}, {0, 0, 0}}),
-    ets:insert(?MODULE, {{last_error_report, server}, {0, 0, 0}}),
+    ets:insert(?MODULE, {{last_error_report, client}, 0}),
+    ets:insert(?MODULE, {{last_error_report, server}, 0}),
     {ok, #state{}}.
 
 handle_call(_Request, _From, State) ->
@@ -220,10 +220,11 @@ start_client_transaction(SIPSock, Req, TU, Opts) ->
 
 maybe_report_error(Type, N) ->
     case ets:lookup(?MODULE, {last_error_report, Type}) of
-        [{_, Now}] ->
-            case timer:now_diff(now(), Now) of
+	[{_, Now}] ->
+	    NowTime = p1_time_compat:monotonic_time(microsecond),
+	    case NowTime - Now of
                 T when T > 60000000 ->
-                    ets:insert(?MODULE, {{last_error_report, Type}, now()}),
+		    ets:insert(?MODULE, {{last_error_report, Type}, NowTime}),
                     ?ERROR_MSG("too many ~s transactions: ~p", [Type, N]);
                 _ ->
                     ok
