@@ -1,3 +1,9 @@
+# Version 1.0.11
+
+* Remove calls to erlang:now() (Paweł Chmielowski)
+* Update rebar.config.script (Paweł Chmielowski)
+* Update dependencies (Christophe Romain)
+
 # Version 1.0.10
 
 * Update fast_tls and stun (Mickaël Rémond)
