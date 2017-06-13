@@ -1,3 +1,7 @@
+# Version 1.0.12
+
+* Update dependencies (Christophe Romain)
+
 # Version 1.0.11
 
 * Remove calls to erlang:now() (Paweł Chmielowski)
