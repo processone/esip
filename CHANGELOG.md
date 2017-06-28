@@ -1,3 +1,8 @@
+# Version 1.0.13
+
+* Updating stun to version 1.0.12.
+* Updating fast_tls to version 1.0.13.
+
 # Version 1.0.12
 
 * Update dependencies (Christophe Romain)
