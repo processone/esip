@@ -23,16 +23,16 @@
 
 -module(esip_server_transaction).
 
--behaviour(gen_fsm).
+-behaviour(p1_fsm).
 
 %% API
 -export([start_link/2, start/2, stop/1, route/2]).
 
-%% gen_fsm callbacks
+%% p1_fsm callbacks
 -export([init/1, handle_event/3, handle_sync_event/4,
 	 handle_info/3, terminate/3, code_change/4]).
 
-%% gen_fsm states
+%% p1_fsm states
 -export([trying/2,
 	 proceeding/2,
          accepted/2,
@@ -50,11 +50,11 @@
 %% API
 %%====================================================================
 start_link(SIPSocket, Request) ->
-    gen_fsm:start_link(?MODULE, [SIPSocket, Request], []).
+    p1_fsm:start_link(?MODULE, [SIPSocket, Request], []).
 
 start(SIPSocket, Request) ->
     case esip_tmp_sup:start_child(esip_server_transaction_sup,
-                                  ?MODULE, gen_fsm, [SIPSocket, Request]) of
+                                  ?MODULE, p1_fsm, [SIPSocket, Request]) of
         {ok, Pid} ->
             {ok, make_trid(Pid)};
         Err ->
@@ -62,18 +62,18 @@ start(SIPSocket, Request) ->
     end.
 
 route(Pid, R) ->
-    gen_fsm:send_event(Pid, R).
+    p1_fsm:send_event(Pid, R).
 
 stop(Pid) ->
-    gen_fsm:send_all_state_event(Pid, stop).
+    p1_fsm:send_all_state_event(Pid, stop).
 
 %%====================================================================
-%% gen_fsm callbacks
+%% p1_fsm callbacks
 %%====================================================================
 init([SIPSock, Request]) ->
     Branch = esip:get_branch(Request#sip.hdrs),
     State = #state{sock = SIPSock, branch = Branch},
-    gen_fsm:send_event(self(), Request),
+    p1_fsm:send_event(self(), Request),
     erlang:send_after(?MAX_TRANSACTION_LIFETIME, self(), timeout),
     esip_transaction:insert(Branch, Request#sip.method, server, self()),
     {ok, trying, State}.
@@ -151,7 +151,7 @@ proceeding(#sip{type = response, status = Status} = Resp, State) when Status < 2
 proceeding(#sip{type = response, status = Status} = Resp,
            #state{method = <<"INVITE">>} = State) when Status < 300 ->
     update_remote_seqnum(Resp, State),
-    gen_fsm:send_event_after(64*esip:timer1(), timer_L),
+    p1_fsm:send_event_after(64*esip:timer1(), timer_L),
     case send(State, Resp) of
         ok ->
             {next_state, accepted, State#state{resp = Resp}};
@@ -163,11 +163,11 @@ proceeding(#sip{type = response, status = Status} = Resp,
     update_remote_seqnum(Resp, State),
     T1 = esip:timer1(),
     if (State#state.sock)#sip_socket.type == udp ->
-            gen_fsm:send_event_after(T1, {timer_G, T1});
+            p1_fsm:send_event_after(T1, {timer_G, T1});
        true ->
             ok
     end,
-    gen_fsm:send_event_after(64*T1, timer_H),
+    p1_fsm:send_event_after(64*T1, timer_H),
     case send(State, Resp) of
         ok ->
             {next_state, completed, State#state{resp = Resp}};
@@ -177,7 +177,7 @@ proceeding(#sip{type = response, status = Status} = Resp,
 proceeding(#sip{type = response, status = Status} = Resp, State) when Status >= 200 ->
     update_remote_seqnum(Resp, State),
     if (State#state.sock)#sip_socket.type == udp ->
-            gen_fsm:send_event_after(64*esip:timer1(), timer_J),
+            p1_fsm:send_event_after(64*esip:timer1(), timer_J),
             case send(State, Resp) of
                 ok ->
                     {next_state, completed, State#state{resp = Resp}};
@@ -238,7 +238,7 @@ accepted(_Event, State) ->
 completed(#sip{type = request, method = <<"ACK">>},
           #state{method = <<"INVITE">>} = State) ->
     if (State#state.sock)#sip_socket.type == udp ->
-            gen_fsm:send_event_after(esip:timer4(), timer_I),
+            p1_fsm:send_event_after(esip:timer4(), timer_I),
             {next_state, confirmed, State};
        true ->
             {stop, normal, State}
@@ -258,9 +258,9 @@ completed({timer_G, T}, State) ->
     T2 = esip:timer2(),
     case 2*T < T2 of
         true ->
-            gen_fsm:send_event_after(2*T, {timer_G, 2*T});
+            p1_fsm:send_event_after(2*T, {timer_G, 2*T});
         false ->
-            gen_fsm:send_event_after(T2, {timer_G, T2})
+            p1_fsm:send_event_after(T2, {timer_G, T2})
     end,
     case send(State, State#state.resp) of
         ok ->
@@ -354,7 +354,7 @@ send(State, Resp) ->
 maybe_send_trying(#sip{method = <<"INVITE">>} = Req) ->
     Trying = esip:make_response(Req, #sip{type = response,
                                           status = 100}),
-    gen_fsm:send_event_after(200, {trying, Trying});
+    p1_fsm:send_event_after(200, {trying, Trying});
 maybe_send_trying(_) ->
     ok.
 

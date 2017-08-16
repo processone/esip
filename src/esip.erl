@@ -540,7 +540,7 @@ check_auth({Type, Params}, Method, Body, Password) ->
     end.
 
 make_hexstr(N) ->
-    hex_encode(crypto:rand_bytes(N)).
+    hex_encode(rand_bytes(N)).
 
 hex_encode(Data) ->
     << <<(esip_codec:to_hex(X))/binary>> || <<X>> <= Data >>.
@@ -751,22 +751,20 @@ warning(Code) when Code > 300, Code < 400 -> <<"\"\"">>.
 %% gen_server callbacks
 %%====================================================================
 init([]) ->
-    {A, B, C} = p1_time_compat:timestamp(),
-    random:seed(A, B, C),
     ets:new(esip_config, [named_table, public]),
     set_config([]),
-    NodeID = list_to_binary(integer_to_list(random:uniform(1 bsl 32))),
+    NodeID = list_to_binary(integer_to_list(rand_uniform(1 bsl 32))),
     register_node(NodeID),
     {ok, #state{node_id = NodeID}}.
 
 handle_call(make_tag, _From, State) ->
-    {reply, {State#state.node_id, random:uniform(1 bsl 32)}, State};
+    {reply, {State#state.node_id, rand_uniform(1 bsl 32)}, State};
 handle_call(make_branch, _From, State) ->
-    {reply, random:uniform(1 bsl 48), State};
+    {reply, rand_uniform(1 bsl 48), State};
 handle_call(make_callid, _From, State) ->
-    {reply, random:uniform(1 bsl 48), State};
+    {reply, rand_uniform(1 bsl 48), State};
 handle_call(make_cseq, _From, State) ->
-    {reply, random:uniform(1 bsl 10), State};
+    {reply, rand_uniform(1 bsl 10), State};
 handle_call(stop, _From, State) ->
     {stop, normal, State};
 handle_call(_Request, _From, State) ->
@@ -863,3 +861,19 @@ compute_digest(Nonce, CNonce, NC, QOP, Algo, Realm,
                $:, unquote(Nonce),
                $:, md5_digest(A2)])
     end.
+
+-ifdef(STRONG_RAND_BYTES).
+rand_bytes(N) ->
+    crypto:strong_rand_bytes(N).
+-else.
+rand_bytes(N) ->
+    crypto:rand_bytes(N).
+-endif.
+
+-ifdef(RAND_UNIFORM).
+rand_uniform(N) ->
+    rand:uniform(N).
+-else.
+rand_uniform(N) ->
+    crypto:rand_uniform(1, N).
+-endif.

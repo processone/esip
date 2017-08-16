@@ -39,6 +39,90 @@ IsRebar3 = case application:get_key(rebar, vsn) of
 		   lists:keymember(mix, 1, application:loaded_applications())
 	   end,
 
+SysVer = erlang:system_info(otp_release),
+
+ProcessSingleVar = fun(F, Var, Tail) ->
+			   case F(F, [Var], []) of
+			       [] -> Tail;
+			       [Val] -> [Val | Tail]
+			   end
+		   end,
+
+ProcessVars = fun(_F, [], Acc) ->
+		      lists:reverse(Acc);
+		 (F, [{Type, Ver, Value} | Tail], Acc) when
+			Type == if_version_above orelse
+			Type == if_version_below ->
+		      SysVer = erlang:system_info(otp_release),
+		      Include = if Type == if_version_above ->
+					SysVer > Ver;
+				   true ->
+					SysVer < Ver
+				end,
+		      if Include ->
+			      F(F, Tail, ProcessSingleVar(F, Value, Acc));
+			 true ->
+			      F(F, Tail, Acc)
+		      end;
+		 (F, [{Type, Ver, Value, ElseValue} | Tail], Acc) when
+			Type == if_version_above orelse
+			Type == if_version_below ->
+		      Include = if Type == if_version_above ->
+					SysVer > Ver;
+				   true ->
+					SysVer < Ver
+				end,
+		      if Include ->
+			      F(F, Tail, ProcessSingleVar(F, Value, Acc));
+			 true ->
+			      F(F, Tail, ProcessSingleVar(F, ElseValue, Acc))
+		      end;
+		 (F, [{Type, Var, Value} | Tail], Acc) when
+			Type == if_var_true orelse
+			Type == if_var_false ->
+		      Flag = Type == if_var_true,
+		      case proplists:get_bool(Var, Cfg) of
+			  V when V == Flag ->
+			      F(F, Tail, ProcessSingleVar(F, Value, Acc));
+			  _ ->
+			      F(F, Tail, Acc)
+		      end;
+		 (F, [{Type, Value} | Tail], Acc) when
+			Type == if_rebar3 orelse
+			Type == if_not_rebar3 ->
+		      Flag = Type == if_rebar3,
+		      case IsRebar3 == Flag of
+			  true ->
+			      F(F, Tail, ProcessSingleVar(F, Value, Acc));
+			  _ ->
+			      F(F, Tail, Acc)
+		      end;
+		 (F, [{Type, Var, Match, Value} | Tail], Acc) when
+			Type == if_var_match orelse
+			Type == if_var_no_match ->
+		      case proplists:get_value(Var, Cfg) of
+			  V when V == Match ->
+			      F(F, Tail, ProcessSingleVar(F, Value, Acc));
+			  _ ->
+			      F(F, Tail, Acc)
+		      end;
+		 (F, [{if_have_fun, MFA, Value} | Tail], Acc) ->
+		      {Mod, Fun, Arity} = MFA,
+		      code:ensure_loaded(Mod),
+		      case erlang:function_exported(Mod, Fun, Arity) of
+			  true ->
+			      F(F, Tail, ProcessSingleVar(F, Value, Acc));
+			  false ->
+			      F(F, Tail, Acc)
+		      end;
+		 (F, [Other1 | Tail1], Acc) ->
+		      F(F, Tail1, [F(F, Other1, []) | Acc]);
+		 (F, Val, Acc) when is_tuple(Val) ->
+		      list_to_tuple(F(F, tuple_to_list(Val), Acc));
+		 (_F, Other2, _Acc) ->
+		      Other2
+	      end,
+
 JobId = case os:getenv("TRAVIS_JOB_ID") of false -> ""; V -> V end,
 
 ModCfg0 = fun(F, Cfg, [Key|Tail], Op, Default) ->
@@ -134,7 +218,7 @@ Rules = [
 	],
 
 
-Config = FilterConfig(FilterConfig, CONFIG, Rules),
+Config = FilterConfig(FilterConfig, ProcessVars(ProcessVars, CONFIG, []), Rules),
 
 %io:format("Rules:~n~p~n~nCONFIG:~n~p~n~nConfig:~n~p~n", [Rules, CONFIG, Config]),
 
