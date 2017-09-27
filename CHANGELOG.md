@@ -1,3 +1,7 @@
+# Version 1.0.16
+
+* Compatibility with R20
+
 # Version 1.0.15
 
 * Updating stun to version 1.0.14.
