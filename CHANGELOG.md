@@ -1,5 +1,8 @@
 # Version 1.0.16
 
+* Updating stun to version 1.0.15.
+* Updating fast_tls to version 1.0.16.
+* Updating p1_utils to version 1.0.10.
 * Compatibility with R20
 
 # Version 1.0.15
