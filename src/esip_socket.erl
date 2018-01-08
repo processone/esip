@@ -204,7 +204,7 @@ init([Sock, Opts]) ->
 		{ok, MyAddr} ->
 		    Transport = get_transport(Opts),
 		    CertFile = get_certfile(Opts),
-		    case maybe_starttls(Sock, Transport, CertFile,
+		    case maybe_starttls(Sock, Transport, CertFile, undefined,
 					{PeerAddr, MyAddr}, server) of
 			{ok, NewSock} ->
 			    inet:setopts(Sock, [{active, once}]),
@@ -228,9 +228,11 @@ init([Sock, Opts]) ->
 handle_call({connect, Addrs, Opts}, _From, State) ->
     Type = get_transport(Opts),
     CertFile = get_certfile(Opts),
+    SNI = get_sni(Opts),
     case do_connect(Addrs, ?CONNECT_TIMEOUT div (length(Addrs) + 1)) of
         {ok, MyAddr, Peer, Sock} ->
-	    case maybe_starttls(Sock, Type, CertFile, {MyAddr, Peer}, client) of
+	    case maybe_starttls(Sock, Type, CertFile, SNI,
+				{MyAddr, Peer}, client) of
 		{ok, NewSock} ->
 		    inet:setopts(Sock, [{active, once}]),
 		    NewState = State#state{type = Type, sock = NewSock,
@@ -482,14 +484,17 @@ get_certfile(Opts) ->
 	    undefined
     end.
 
-maybe_starttls(_Sock, tls, undefined, FromTo, server) ->
+get_sni(Opts) ->
+    proplists:get_value(sni, Opts).
+
+maybe_starttls(_Sock, tls, undefined, _SNI, FromTo, server) ->
     {{FromIP, FromPort}, {ToIP, ToPort}} = FromTo,
     ?ERROR_MSG("failed to start TLS connection ~s:~p -> ~s:~p: "
 	       "option 'certfile' is not set",
 	       [inet_parse:ntoa(FromIP), FromPort,
 		inet_parse:ntoa(ToIP), ToPort]),
     {error, eprotonosupport};
-maybe_starttls(Sock, tls, CertFile, _FromTo, Role) ->
+maybe_starttls(Sock, tls, CertFile, SNI, _FromTo, Role) ->
     Opts1 = case Role of
 		client -> [connect];
 		server -> []
@@ -498,7 +503,11 @@ maybe_starttls(Sock, tls, CertFile, _FromTo, Role) ->
 		undefined -> Opts1;
 		_ -> [{certfile, CertFile}|Opts1]
 	    end,
-    case fast_tls:tcp_to_tls(Sock, Opts2) of
+    Opts3 = case SNI of
+		undefined -> Opts2;
+		_ -> [{sni, SNI}|Opts2]
+	    end,
+    case fast_tls:tcp_to_tls(Sock, Opts3) of
 	{ok, NewSock} when Role == client ->
 	    case fast_tls:recv_data(NewSock, <<"">>) of
 		{ok, <<"">>} ->
@@ -511,7 +520,7 @@ maybe_starttls(Sock, tls, CertFile, _FromTo, Role) ->
 	{error, _} = Err ->
 	    Err
     end;
-maybe_starttls(Sock, _Transport, _CertFile, _FromTo, _Role) ->
+maybe_starttls(Sock, _Transport, _CertFile, _SNI, _FromTo, _Role) ->
     {ok, Sock}.
 
 prepare_stun_response(Msg) ->
