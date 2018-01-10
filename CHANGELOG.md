@@ -1,3 +1,7 @@
+# Version 1.0.19
+
+* Support SNI for TLS connections 
+
 # Version 1.0.18
 
 * Updating stun to version 1.0.17.
