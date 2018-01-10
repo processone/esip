@@ -1,5 +1,7 @@
 # Version 1.0.19
 
+* Updating stun to version 1.0.18.
+* Updating fast_tls to version 71250ae.
 * Support SNI for TLS connections 
 
 # Version 1.0.18
