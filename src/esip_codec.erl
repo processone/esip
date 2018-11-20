@@ -265,9 +265,19 @@ decode_uri_host(Data, URI) ->
                     Params = decode_params(Ps)
             end
     end,
-    case split(HostPort, $:, 1) of
+    case split(HostPort, $:) of
         [Host, Port] ->
             case to_integer(Port, 0, 65535) of
+                {ok, PortInt} ->
+                    URI#uri{host = to_lower(Host), port = PortInt,
+                            params = Params, hdrs = Headers};
+                _ ->
+                    error
+            end;
+        [H1, H2 | TailList] ->
+            Host = list_to_binary(join(lists:append([H1, H2], lists:sublist(TailList, length(TailList)-1)),":")),
+        
+            case to_integer(lists:last(TailList), 0, 65535) of
                 {ok, PortInt} ->
                     URI#uri{host = to_lower(Host), port = PortInt,
                             params = Params, hdrs = Headers};
