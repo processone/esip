@@ -1,5 +1,8 @@
 # Version 1.0.28
 
+* Updating stun to version 1.0.27.
+* Updating fast_tls to version 1.1.0.
+* Updating p1_utils to version 1.0.14.
 * Add contribution guide
 * Disable gcov because there is no c part anymore
 
