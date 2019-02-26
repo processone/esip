@@ -1,3 +1,8 @@
+# Version 1.0.28
+
+* Add contribution guide
+* Disable gcov because there is no c part anymore
+
 # Version 1.0.27
 
 * Updating fast_tls to version 1.0.26.
