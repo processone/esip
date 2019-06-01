@@ -115,6 +115,8 @@
 -callback data_in(iodata(), #sip_socket{}) -> any().
 -callback data_out(iodata(), #sip_socket{}) -> any().
 
+-export_type([sip/0, uri/0, via/0, dialog_id/0, sip_socket/0]).
+
 %%====================================================================
 %% API
 %%====================================================================
@@ -341,7 +343,7 @@ set_key(Key, Val, Keys) ->
     Res = lists:foldl(
             fun({K, V}, Acc) ->
                     case is_equal(K, Key) of
-                        true ->                          
+                        true ->
                             Acc;
                         false ->
                             [{K, V}|Acc]

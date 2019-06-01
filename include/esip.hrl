@@ -47,3 +47,9 @@
 		     addr :: {inet:ip_address(), inet:port_number()},
 		     peer :: {inet:ip_address(), inet:port_number()},
 		     pid  :: pid()}).
+
+-type sip() :: #sip{}.
+-type uri() :: #uri{}.
+-type via() :: #via{}.
+-type dialog_id() :: #dialog_id{}.
+-type sip_socket() :: #sip_socket{}.
