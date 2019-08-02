@@ -1,3 +1,7 @@
+# Version 1.0.30
+
+* Export useful types
+
 # Version 1.0.29
 
 * Updating stun to version 1.0.28.
