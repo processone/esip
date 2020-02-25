@@ -1,3 +1,7 @@
+# Version 1.0.32
+
+* Update copyright year
+
 # Version 1.0.31
 
 * Updating stun to version 1.0.30.
