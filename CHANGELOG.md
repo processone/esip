@@ -1,5 +1,8 @@
 # Version 1.0.32
 
+* Updating stun to version 1.0.31.
+* Updating fast_tls to version 1.1.4.
+* Updating p1_utils to version 1.0.18.
 * Update copyright year
 
 # Version 1.0.31
