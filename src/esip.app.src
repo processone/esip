@@ -22,7 +22,7 @@
 %%%----------------------------------------------------------------------
 {application, esip,
  [{description, "ProcessOne SIP server component in Erlang"},
-  {vsn, "1.0.33"},
+  {vsn, "1.0.34"},
   {modules, []},
   {registered, []},
   {applications, [kernel, stdlib]},
