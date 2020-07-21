@@ -1,7 +1,5 @@
 # Version 1.0.35
 
-* Updating stun to version 1.0.34.
-* Updating fast_tls to version 1.1.6.
 * Fix compilation with Erlang/OTP 23.0 and Travis
 * Updating stun to version 1.0.35.
 * Updating fast_tls to version 1.1.7.
