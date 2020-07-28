@@ -1,6 +1,7 @@
 # Version 1.0.36
 
 * Updating stun to version 1.0.36.
+* Updating stun to version 1.0.36.
 
 # Version 1.0.35
 
