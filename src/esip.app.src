@@ -30,7 +30,7 @@
   {mod, {esip_app, []}},
 
   %% hex.pm packaging:
-  {files, ["src/", "include/", "c_src/esip_codec.c", "rebar.config", "rebar.config.script", "README.md", "LICENSE.txt"]},
+  {files, ["src/", "include/", "c_src/esip_codec.c", "configure", "rebar.config", "rebar.config.script", "vars.config.in", "README.md", "LICENSE.txt"]},
   {licenses, ["Apache 2.0"]},
   {links, [{"Github", "https://github.com/processone/esip"}]}]}.
 
