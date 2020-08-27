@@ -37,7 +37,7 @@
 
 -include("esip.hrl").
 -include("esip_lib.hrl").
--include("stun.hrl").
+-include_lib("stun/include/stun.hrl").
 
 -define(TCP_SEND_TIMEOUT, 15000).
 -define(CONNECT_TIMEOUT, 20000).
