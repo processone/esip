@@ -1,5 +1,7 @@
 # Version 1.0.38
 
+* Updating stun to version 1.0.39.
+* Updating fast_tls to version 1.1.9.
 * Exclude old OTP releases from Travis
 * Fixes to support compilation with rebar3
 
