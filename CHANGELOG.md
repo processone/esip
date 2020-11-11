@@ -1,3 +1,8 @@
+# Version 1.0.38
+
+* Exclude old OTP releases from Travis
+* Fixes to support compilation with rebar3
+
 # Version 1.0.37
 
 * Updating stun to version 1.0.37.
