@@ -1,3 +1,9 @@
+# Version 1.0.39
+
+* Updating fast_tls to version 1.1.10.
+* Updating stun to version 1.0.40.
+* Updating p1_utils to version 1.0.21.
+
 # Version 1.0.38
 
 * Updating stun to version 1.0.39.
