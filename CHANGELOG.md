@@ -1,3 +1,7 @@
+# Version 1.0.40
+
+* Add missing applicaitons in esip.app
+
 # Version 1.0.39
 
 * Updating fast_tls to version 1.1.10.
