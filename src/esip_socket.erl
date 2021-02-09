@@ -47,7 +47,7 @@
 -record(state, {type = udp :: udp | tcp | tls,
 		addr       :: addr(),
 		peer       :: addr(),
-		sock       :: any(),
+		sock       :: fast_tls:tls_socket(),
 		buf = <<>> :: binary(),
 		max_size   :: non_neg_integer(),
 		msg        :: #sip{},
