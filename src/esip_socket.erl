@@ -59,16 +59,16 @@
 %%%===================================================================
 %% @doc Start TCP client to connect
 start_link() ->
-    ?GEN_SERVER:start_link(?MODULE, [], [{max_queue, 5000}]).
+    ?GEN_SERVER:start_link(?MODULE, [], []).
 
 %% @doc Start UDP worker
 start_link(I) ->
     ?GEN_SERVER:start_link({local, get_proc(I)}, ?MODULE, [],
-			   [{max_queue, 5000}]).
+			   []).
 
 %% @doc Start TCP acceptor
 start_link(Sock, Opts) ->
-    ?GEN_SERVER:start_link(?MODULE, [Sock, Opts], [{max_queue, 5000}]).
+    ?GEN_SERVER:start_link(?MODULE, [Sock, Opts], []).
 
 %% @doc Start TCP client to connect, the callback
 start() ->
