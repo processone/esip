@@ -50,7 +50,7 @@
 		sock       :: fast_tls:tls_socket(),
 		buf = <<>> :: binary(),
 		max_size   :: non_neg_integer(),
-		msg        :: #sip{},
+		msg        :: #sip{} | undefined,
 		wait_size  :: non_neg_integer(),
 		certfile   :: iodata()}).
 
