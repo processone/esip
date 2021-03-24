@@ -1,3 +1,14 @@
+# Version 1.0.42
+
+* Updating fast_tls to version 1.1.12.
+* Updating p1_utils to version 1.0.22.
+* Updating stun to version 1.0.43.
+* Dialyzer reports a warning here that seems a false alarm
+* Update record spec: msg gets 'undefined' value in process_data/2
+* sock's type is tls_socket(), but that's defined internally in fast_tls
+* Tell Dialyzer to not complain about some records that don't match definitions
+* p1_server:start_link (nor gen:start) don't support max_queue
+
 # Version 1.0.41
 
 * Updating stun to version 1.0.42.
