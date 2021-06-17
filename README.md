@@ -1,7 +1,8 @@
 # eSIP
 
-[![Build Status](https://travis-ci.org/processone/esip.svg?branch=master)](https://travis-ci.org/processone/esip) [![Hex version](https://img.shields.io/hexpm/v/esip.svg "Hex version")](https://hex.pm/packages/esip)
-
+[![CI](https://github.com/processone/esip/actions/workflows/ci.yml/badge.svg)](https://github.com/processone/esip/actions/workflows/ci.yml)
+[![Coverage Status](https://coveralls.io/repos/processone/esip/badge.svg?branch=master&service=github)](https://coveralls.io/github/processone/esip?branch=master)
+[![Hex version](https://img.shields.io/hexpm/v/esip.svg "Hex version")](https://hex.pm/packages/esip)
 
 ProcessOne SIP server component in Erlang.
 
