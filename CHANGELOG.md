@@ -1,3 +1,7 @@
+# Version 1.0.43
+
+* Switch from using Travis to Github Actions as CI
+
 # Version 1.0.42
 
 * Updating fast_tls to version 1.1.12.
