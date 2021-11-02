@@ -169,8 +169,7 @@ udp_init(Sock, Opts) ->
     Opts.
 
 udp_recv(Sock, Addr, Port, Data, Opts) ->
-    Pid = get_proc_by_hash({Addr, Port}),
-    Pid ! {udp, Sock, Addr, Port, Data},
+    get_proc_random() ! {udp, Sock, Addr, Port, Data},
     Opts.
 
 start_pool() ->
@@ -457,9 +456,9 @@ connect_opts() ->
 get_pool_size() ->
     100.
 
-get_proc_by_hash(Source) ->
-    N = erlang:phash2(Source, get_pool_size()) + 1,
-    get_proc(N).
+get_proc_random() ->
+    {_, _, MicroSecs} = os:timestamp(),
+    get_proc((MicroSecs rem get_pool_size()) + 1).
 
 get_proc(N) ->
     list_to_atom("esip_udp_" ++ integer_to_list(N)).
