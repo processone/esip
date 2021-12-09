@@ -1,3 +1,7 @@
+# Version 1.0.45
+
+* Updating stun to version 1.0.47.
+
 # Version 1.0.44
 
 * Updating stun to version 1.0.45.
