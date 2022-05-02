@@ -1,5 +1,8 @@
 # Version 1.0.46
 
+* Updating fast_tls to version 1.1.14.
+* Updating stun to version 1.2.1.
+* Updating p1_utils to version 1.0.25.
 * Generate documentation when publishing to hex.pl
 * Improve of work distribution between worker processes
 
