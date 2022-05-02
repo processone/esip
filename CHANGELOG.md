@@ -1,3 +1,8 @@
+# Version 1.0.46
+
+* Generate documentation when publishing to hex.pl
+* Improve of work distribution between worker processes
+
 # Version 1.0.45
 
 * Updating stun to version 1.0.47.
