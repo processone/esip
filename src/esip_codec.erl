@@ -265,18 +265,30 @@ decode_uri_host(Data, URI) ->
                     Params = decode_params(Ps)
             end
     end,
-    case split(HostPort, $:, 1) of
-        [Host, Port] ->
-            case to_integer(Port, 0, 65535) of
-                {ok, PortInt} ->
-                    URI#uri{host = to_lower(Host), port = PortInt,
-                            params = Params, hdrs = Headers};
-                _ ->
-                    error
-            end;
-        [Host] ->
-            URI#uri{host = to_lower(Host), params = Params, hdrs = Headers}
+    case decode_uri_host2(split(HostPort, $:)) of
+        {Host, PortInt} ->
+            URI#uri{host = to_lower(Host), port = PortInt,
+                    params = Params, hdrs = Headers};
+        _ ->
+            error
     end.
+
+decode_uri_host2([Host, Port]) ->
+    case to_integer(Port, 0, 65535) of
+        {ok, PortInt} ->
+            {Host, PortInt};
+        _ ->
+            error
+    end;
+decode_uri_host2([_, _ | _] = Els) ->
+    case to_integer(lists:last(Els), 0, 65535) of
+        {ok, PortInt} ->
+            {list_to_binary(join(lists:droplast(Els), ":")), PortInt};
+        error ->
+            {list_to_binary(join(Els, ":")), undefined}
+    end;
+decode_uri_host2([Host]) ->
+    {Host, undefined}.
 
 encode_uri(#uri{scheme = Scheme,
                 user = User,
