@@ -1,3 +1,7 @@
+# Version 1.0.49
+
+* Updating stun to version 1.2.7.
+
 # Version 1.0.48
 
 * Updating fast_tls to version 1.1.16.
