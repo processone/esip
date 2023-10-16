@@ -1,3 +1,7 @@
+# Version 1.0.50
+
+* Updating stun to version 1.2.10.
+
 # Version 1.0.49
 
 * Updating stun to version 1.2.7.
