@@ -52,6 +52,10 @@
 -include("esip.hrl").
 -include("esip_lib.hrl").
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -265,18 +269,30 @@ decode_uri_host(Data, URI) ->
                     Params = decode_params(Ps)
             end
     end,
-    case split(HostPort, $:, 1) of
-        [Host, Port] ->
-            case to_integer(Port, 0, 65535) of
-                {ok, PortInt} ->
-                    URI#uri{host = to_lower(Host), port = PortInt,
-                            params = Params, hdrs = Headers};
-                _ ->
-                    error
-            end;
-        [Host] ->
-            URI#uri{host = to_lower(Host), params = Params, hdrs = Headers}
+    case decode_uri_host2(split(HostPort, $:)) of
+        {Host, PortInt} ->
+            URI#uri{host = to_lower(Host), port = PortInt,
+                    params = Params, hdrs = Headers};
+        _ ->
+            error
     end.
+
+decode_uri_host2([Host, Port]) ->
+    case to_integer(Port, 0, 65535) of
+        {ok, PortInt} ->
+            {Host, PortInt};
+        _ ->
+            error
+    end;
+decode_uri_host2([_, _ | _] = Els) ->
+    case to_integer(lists:last(Els), 0, 65535) of
+        {ok, PortInt} ->
+            {list_to_binary(join(lists:droplast(Els), ":")), PortInt};
+        error ->
+            {list_to_binary(join(Els, ":")), undefined}
+    end;
+decode_uri_host2([Host]) ->
+    {Host, undefined}.
 
 encode_uri(#uri{scheme = Scheme,
                 user = User,
@@ -1358,3 +1374,45 @@ test_loop(P, _, 0, T) ->
 test_loop(P, Msg, N, T) ->
     decode(Msg),
     test_loop(P, Msg, N-1, T).
+
+-ifdef(TEST).
+
+decode_via_test(V, H, P) ->
+    [U] = decode_via(V),
+    ?assertEqual(H, U#via.host),
+    ?assertEqual(P, U#via.port).
+
+decode_via_test() ->
+    decode_via_test(<<"SIP/2.0/UDP host4.example.com:5060;branch=z9hG4bKkdju43234">>,
+                    <<"host4.example.com">>, 5060),
+    decode_via_test(<<"SIP/2.0/UDP 192.0.2.15;;,;,,">>,
+                    <<"192.0.2.15">>, undefined),
+    decode_via_test(<<"SIP/2.0/UDP [::ffff:192.0.2.10]:19823;branch=z9hG4bKbh19">>,
+                    <<"[::ffff:192.0.2.10]">>, 19823),
+    decode_via_test(<<"SIP/2.0/UDP [2001:db8::9:1]:6050;branch=z9hG4bKas3-111">>,
+                    <<"[2001:db8::9:1]">>, 6050),
+    decode_via_test(<<"SIP/2.0/UDP [2001:db8::9:1];branch=z9hG4bKas3-111">>,
+                    <<"[2001:db8::9:1]">>, undefined),
+    decode_via_test(<<"SIP/2.0/UDP [2001:db8::20];branch=z9hG4bKas3-111">>,
+                    <<"[2001:db8::20]">>, undefined),
+    decode_via_test(<<"SIP/2.0/UDP [2001:db8::10:5070];branch=z9hG4bKas3-111">>,
+                    <<"[2001:db8::10:5070]">>, undefined),
+    decode_via_test(<<"SIP/2.0/UDP [2001:db8::10]:5070;branch=z9hG4bKas3-111">>,
+                    <<"[2001:db8::10]">>, 5070),
+    ok.
+
+decode_uri_host_test(HP, H, P) ->
+    U = decode_uri_host(HP, #uri{}),
+    ?assertEqual(H, U#uri.host),
+    ?assertEqual(P, U#uri.port).
+
+decode_uri_host_test() ->
+    decode_uri_host_test(<<"192.0.1.98:5222">>,
+                         <<"192.0.1.98">>, 5222),
+    decode_uri_host_test(<<"2001:0db8:85a3:0000:0000:8a2e:0370:7334:5222">>,
+                         <<"2001:0db8:85a3:0000:0000:8a2e:0370:7334">>, 5222),
+    decode_uri_host_test(<<"[2001:0db8:85a3:0000:0000:8a2e:0370:7334]:5222">>,
+                         <<"[2001:0db8:85a3:0000:0000:8a2e:0370:7334]">>, 5222),
+    ok.
+
+-endif.
