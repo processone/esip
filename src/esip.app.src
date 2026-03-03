@@ -25,7 +25,7 @@
   {vsn, "1.0.59"},
   {modules, []},
   {registered, []},
-  {applications, [kernel, stdlib, fast_tls, p1_utils, stun]},
+  {applications, [kernel, stdlib, inets, fast_tls, p1_utils, stun]},
   {env, []},
   {mod, {esip_app, []}},
 
