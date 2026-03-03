@@ -210,15 +210,14 @@ lookup(DialogID) ->
     call({lookup, DialogID}).
 
 call(Msg) ->
-    case catch gen_server:call(?MODULE, Msg, 5000) of
-        {'EXIT', _} = Err ->
+    try gen_server:call(?MODULE, Msg, 5000)
+    catch
+        _:_ = Err ->
             ?ERROR_MSG("failed to comlete dialog operation:~n"
                        "** Msg: ~p~n"
                        "** Err: ~p",
                        [Msg, Err]),
-            {error, internal_server_error};
-        Res ->
-            Res
+            {error, internal_server_error}
     end.
 
 %%%===================================================================

@@ -83,8 +83,12 @@ handle_call({add_listener, Port, Transport, Opts}, _From, State) ->
 handle_call({del_listener, Port, Transport}, _From, State) ->
     case dict:find({Port, Transport}, State#state.listeners) of
 	{ok, {MRef, Pid, _Opts}} ->
-	    catch erlang:demonitor(MRef, [flush]),
-	    catch exit(Pid, kill),
+	    try erlang:demonitor(MRef, [flush])
+            catch _:_ -> error
+            end,
+	    try exit(Pid, kill)
+            catch _:_ -> error
+            end,
 	    Listeners = dict:erase({Port, Transport}, State#state.listeners),
 	    {reply, ok, State#state{listeners = Listeners}};
 	error ->
@@ -179,15 +183,16 @@ accept(ListenSocket, Opts) ->
 udp_recv(Socket, Opts) ->
     case gen_udp:recv(Socket, 0) of
 	{ok, {Addr, Port, Packet}} ->
-	    case catch esip_socket:udp_recv(Socket, Addr, Port, Packet, Opts) of
-		{'EXIT', Reason} ->
+	    try esip_socket:udp_recv(Socket, Addr, Port, Packet, Opts) of
+		NewOpts ->
+		    udp_recv(Socket, NewOpts)
+            catch
+		_:Reason ->
 		    ?ERROR_MSG("failed to process UDP packet:~n"
 			       "** Source: {~p, ~p}~n"
 			       "** Reason: ~p~n** Packet: ~p",
 			       [Addr, Port, Reason, Packet]),
-		    udp_recv(Socket, Opts);
-		NewOpts ->
-		    udp_recv(Socket, NewOpts)
+		    udp_recv(Socket, Opts)
 	    end;
 	{error, Reason} ->
 	    ?ERROR_MSG("unexpected UDP error: ~s", [inet:format_error(Reason)]),

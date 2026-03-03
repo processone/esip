@@ -244,7 +244,9 @@ handle_info(_Info, StateName, State) ->
 
 terminate(_Reason, _StateName, #state{req = Req, branch = Branch}) ->
     if Req /= undefined ->
-            catch esip_transaction:delete(Branch, Req#sip.method, client);
+            try esip_transaction:delete(Branch, Req#sip.method, client)
+            catch _:_ -> error
+            end;
        true ->
             ok
     end.

@@ -332,7 +332,7 @@ process_data(#state{buf = Buf, max_size = MaxSize,
                     msg = undefined} = State, Data) ->
     case process_crlf(<<Buf/binary, Data/binary>>, State) of
 	{ok, NewBuf} ->
-	    case catch esip_codec:decode(NewBuf, stream) of
+	    try esip_codec:decode(NewBuf, stream) of
 		{ok, Msg, Tail} ->
 		    case esip:get_hdr('content-length', Msg#sip.hdrs) of
 			N when is_integer(N), N >= 0, N =< MaxSize ->
@@ -345,6 +345,9 @@ process_data(#state{buf = Buf, max_size = MaxSize,
 		more when size(NewBuf) < MaxSize ->
 		    {noreply, State#state{buf = NewBuf}};
 		_ ->
+		    {stop, normal, State}
+            catch
+		_:_ ->
 		    {stop, normal, State}
 	    end;
 	{error, _} ->
@@ -366,13 +369,14 @@ process_data(#state{buf = Buf, max_size = MaxSize,
 
 stream_transport_recv(State, Msg) ->
     SIPSock = make_sip_socket(State),
-    case catch esip_transport:recv(SIPSock, Msg) of
-        {'EXIT', Reason} ->
-            ?ERROR_MSG("transport layer failed:~n"
-                       "** Packet: ~p~n** Reason: ~p",
-                       [Msg, Reason]);
+    try esip_transport:recv(SIPSock, Msg) of
         _ ->
             ok
+    catch
+        _:Reason ->
+            ?ERROR_MSG("transport layer failed:~n"
+                       "** Packet: ~p~n** Reason: ~p",
+                       [Msg, Reason])
     end.
 
 process_crlf(<<"\r\n\r\n", Data/binary>>, State) ->
@@ -417,7 +421,7 @@ datagram_transport_recv(SIPSock, <<_:32, ?STUN_MAGIC:32, _/binary>> = Data) ->
 	    ok
     end;
 datagram_transport_recv(SIPSock, Data) ->
-    case catch esip_codec:decode(Data) of
+    try esip_codec:decode(Data) of
         {ok, #sip{hdrs = Hdrs, body = Body} = Msg} ->
             case esip:get_hdr('content-length', Hdrs) of
                 N when is_integer(N), N >= 0 ->
@@ -434,16 +438,20 @@ datagram_transport_recv(SIPSock, Data) ->
             end;
 	Err ->
 	    Err
+    catch
+        _:Err ->
+            Err
     end.
 
 do_transport_recv(SIPSock, Msg) ->
-    case catch esip_transport:recv(SIPSock, Msg) of
-        {'EXIT', Reason} ->
-            ?ERROR_MSG("transport layer failed:~n"
-                       "** Packet: ~p~n** Reason: ~p",
-                       [Msg, Reason]);
+    try esip_transport:recv(SIPSock, Msg) of
         _ ->
             ok
+    catch
+        _:Reason ->
+            ?ERROR_MSG("transport layer failed:~n"
+                       "** Packet: ~p~n** Reason: ~p",
+                       [Msg, Reason])
     end.
 
 connect_opts() ->
@@ -478,10 +486,13 @@ get_transport(Opts) ->
     end.
 
 get_certfile(Opts) ->
-    case catch iolist_to_binary(proplists:get_value(certfile, Opts)) of
+    try iolist_to_binary(proplists:get_value(certfile, Opts)) of
 	Filename when is_binary(Filename), Filename /= <<"">> ->
 	    Filename;
 	_ ->
+	    undefined
+    catch
+	_:_ ->
 	    undefined
     end.
 

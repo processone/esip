@@ -57,12 +57,12 @@
 %%%===================================================================
 -ifdef(USE_NIF).
 start() ->
-    case catch erlang:load_nif(atom_to_list(?MODULE), 0) of
+    case erlang:load_nif(atom_to_list(?MODULE), 0) of
         ok ->
             ok;
         _Err ->
             SOPath = filename:join(esip:get_so_path(), atom_to_list(?MODULE)),
-            case catch erlang:load_nif(SOPath, 0) of
+            case erlang:load_nif(SOPath, 0) of
                 ok ->
                     ok;
                 Err ->
@@ -388,11 +388,12 @@ unescape(Bin) ->
     list_to_binary(unescape1(binary_to_list(Bin))).
 
 unescape1([$%, A, B|T]) ->
-    case catch erlang:list_to_integer([A,B], 16) of
-        {'EXIT', _} ->
-            [$%|unescape1([A,B|T])];
+    try erlang:list_to_integer([A,B], 16) of
         Int ->
             [Int|unescape1(T)]
+    catch
+        _:_ ->
+            [$%|unescape1([A,B|T])]
     end;
 unescape1([C|T]) ->
     [C|unescape1(T)];
@@ -455,18 +456,19 @@ decode_hdrs(Data, {Method, Acc}) ->
                        true ->
                             to_lower(Name)
                     end,
-            case catch decode_hdr(LName, Value) of
-                {'EXIT', _} ->
+            try decode_hdr(LName, Value) of
+                {cseq, CSeq, M} ->
+                    decode_hdrs(Rest, {M, [{'cseq', CSeq}|Acc]});
+                Result ->
+                    decode_hdrs(Rest, {Method, [Result|Acc]})
+            catch
+                _:_ ->
                     HdrName = if is_atom(Name) ->
                                       atom_to_binary1(Name);
                                  true ->
                                       Name
                               end,
-                    decode_hdrs(Rest, {Method, [{HdrName, Value}|Acc]});
-                {cseq, CSeq, M} ->
-                    decode_hdrs(Rest, {M, [{'cseq', CSeq}|Acc]});
-                Result ->
-                    decode_hdrs(Rest, {Method, [Result|Acc]})
+                    decode_hdrs(Rest, {Method, [{HdrName, Value}|Acc]})
             end;
         {ok, http_eoh, Body} ->
             {ok, Method, prepare_hdrs(Acc), Body};
@@ -1119,27 +1121,34 @@ strcasecmp(Bin1, Bin2) ->
     to_lower(Bin1) == to_lower(Bin2).
 
 to_integer(Bin, Min, Max) ->
-    case catch list_to_integer(binary_to_list(Bin)) of
+    try list_to_integer(binary_to_list(Bin)) of
         N when N >= Min, N =< Max ->
             {ok, N};
         _ ->
+            error
+    catch
+        _:_ ->
             error
     end.
 
 to_float(Bin, Min, Max) ->
     S = binary_to_list(Bin),
-    case catch list_to_integer(S) of
+    try list_to_integer(S) of
         N when N >= Min, N =< Max ->
             {ok, N};
-        {'EXIT', _} ->
-            case catch erlang:list_to_float(S) of
+        _ ->
+            error
+    catch
+        _:_ ->
+            try erlang:list_to_float(S) of
                 N when N >= Min, N =< Max ->
                     {ok, N};
                 _ ->
                     error
-            end;
-        _ ->
-            error
+            catch
+                _:_ ->
+                    error
+            end
     end.
 
 atom_to_binary1(Atom) ->

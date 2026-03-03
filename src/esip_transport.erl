@@ -326,14 +326,15 @@ has_to({_, #uri{}, _}) -> true;
 has_to(_) -> false.
 
 do_send(SIPSock, Msg) ->
-    case catch esip_codec:encode(Msg) of
-        {'EXIT', _} = Err ->
-            ?ERROR_MSG("failed to encode:~n"
-		       "** Packet: ~p~n** Reason: ~p",
-		       [Msg, Err]);
+    try esip_codec:encode(Msg) of
         Data ->
             esip:callback(data_out, [Data, SIPSock]),
 	    esip_socket:send(SIPSock, Data)
+    catch
+        _:_ = Err ->
+            ?ERROR_MSG("failed to encode:~n"
+		       "** Packet: ~p~n** Reason: ~p",
+		       [Msg, Err])
     end.
 
 host_to_ip(Host) when is_binary(Host) ->
@@ -410,8 +411,10 @@ do_resolve(#uri{host = Host, port = Port, params = Params}, SupportedTransports)
                     end
             end;
         TransportBinary ->
-            Transport = (catch erlang:binary_to_existing_atom(
-                                 TransportBinary, utf8)),
+            Transport = try erlang:binary_to_existing_atom(
+                                 TransportBinary, utf8)
+                        catch _:_ -> error
+                        end,
             case lists:member(Transport, SupportedTransports) of
                 true ->
                     case host_to_ip(Host) of
@@ -604,10 +607,13 @@ sort_transport(tls, tcp) -> false;
 sort_transport(tls, tls) -> true.
 
 get_certfile(Opts) ->
-    case catch iolist_to_binary(proplists:get_value(certfile, Opts)) of
+    try iolist_to_binary(proplists:get_value(certfile, Opts)) of
 	Filename when is_binary(Filename), Filename /= <<"">> ->
 	    Filename;
 	_ ->
+	    undefined
+    catch
+	_:_ ->
 	    undefined
     end.
 

@@ -571,31 +571,29 @@ callback({M, F, A}) ->
     callback(M, F, A).
 
 callback(F, Args) when is_function(F) ->
-    case catch apply(F, Args) of
-        {'EXIT', _} = Err ->
+    try apply(F, Args)
+    catch
+        _:_ = Err ->
             ?ERROR_MSG("failed to process callback:~n"
                        "** Function: ~p~n"
                        "** Args: ~p~n"
                        "** Reason: ~p",
                        [F, Args, Err]),
-            {error, internal_server_error};
-        Result ->
-            Result
+            {error, internal_server_error}
     end;
 callback(F, Args) ->
     callback(get_config_value(module), F, Args).
 
 callback(Mod, Fun, Args) ->
-    case catch apply(Mod, Fun, Args) of
-        {'EXIT', _} = Err ->
+    try apply(Mod, Fun, Args)
+    catch
+        _:_ = Err ->
             ?ERROR_MSG("failed to process callback:~n"
                        "** Function: ~p:~p/~p~n"
                        "** Args: ~p~n"
                        "** Reason: ~p",
                        [Mod, Fun, length(Args), Args, Err]),
-            {error, internal_server_error};
-        Result ->
-            Result
+            {error, internal_server_error}
     end.
 
 %% Basic Timers
@@ -636,11 +634,12 @@ get_node_by_tag(Tag) ->
     end.
 
 get_node_by_id(NodeID) when is_binary(NodeID) ->
-    case catch erlang:binary_to_existing_atom(NodeID, utf8) of
-        {'EXIT', _} ->
-            node();
+    try erlang:binary_to_existing_atom(NodeID, utf8) of
         Res ->
             get_node_by_id(Res)
+    catch
+        _:_ ->
+            node()
     end;
 get_node_by_id(NodeID) ->
     case global:whereis_name(NodeID) of
@@ -789,10 +788,13 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 default_config() ->
-    Software = case catch application:get_key(esip, vsn) of
+    Software = try application:get_key(esip, vsn) of
                    {ok, [_|_] = Ver} ->
                        list_to_binary(["esip/", Ver]);
                    _ ->
+                       <<"esip">>
+               catch
+                   _:_ ->
                        <<"esip">>
                end,
     [{max_forwards, 70},
