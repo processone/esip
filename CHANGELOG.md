@@ -1,3 +1,7 @@
+# Version 1.0.60
+
+* Fix new deprecation in R29
+
 # Version 1.0.59
 
 * Updating stun to version 1.2.21.
